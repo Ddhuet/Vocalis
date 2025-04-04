@@ -18,6 +18,7 @@ from datetime import datetime
 from ..services.transcription import WhisperTranscriber
 from ..services.llm import LLMClient
 from ..services.tts import TTSClient
+from ..services.conversation_storage import ConversationStorage
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +40,16 @@ class MessageType:
     SILENT_FOLLOWUP = "silent_followup"
     USER_PROFILE = "user_profile"
     USER_PROFILE_UPDATED = "user_profile_updated"
+    
+    # Session storage message types
+    SAVE_SESSION = "save_session"
+    SAVE_SESSION_RESULT = "save_session_result"
+    LOAD_SESSION = "load_session"
+    LOAD_SESSION_RESULT = "load_session_result"
+    LIST_SESSIONS = "list_sessions"
+    LIST_SESSIONS_RESULT = "list_sessions_result"
+    DELETE_SESSION = "delete_session"
+    DELETE_SESSION_RESULT = "delete_session_result"
 
 class WebSocketManager:
     """
@@ -77,6 +88,9 @@ class WebSocketManager:
         # Load system prompt and user profile
         self.system_prompt = self._load_system_prompt()
         self.user_profile = self._load_user_profile()
+        
+        # Initialize conversation storage
+        self.conversation_storage = ConversationStorage()
         
         logger.info("Initialized WebSocket Manager")
     
@@ -257,11 +271,11 @@ class WebSocketManager:
                 })
 
                 # Still send TTS_END to fully reset UI
-            await websocket.send_json({
-                "type": MessageType.TTS_END,
-                "timestamp": datetime.now().isoformat()
-            })
-            return
+                await websocket.send_json({
+                    "type": MessageType.TTS_END,
+                    "timestamp": datetime.now().isoformat()
+                })
+                return
                 
             # Get LLM response
             await self._send_status(websocket, "processing_llm", {})
@@ -579,6 +593,148 @@ class WebSocketManager:
             logger.error(f"Error generating silent follow-up: {e}")
             await self._send_error(websocket, f"Follow-up error: {str(e)}")
     
+    async def _handle_save_session(self, websocket: WebSocket, title: Optional[str] = None, session_id: Optional[str] = None):
+        """
+        Handle save session request.
+        
+        Args:
+            websocket: The WebSocket connection
+            title: Optional title for the session
+            session_id: Optional ID for the session (for overwriting existing)
+        """
+        try:
+            # Get current conversation history from LLM client
+            messages = self.llm_client.conversation_history.copy()
+            
+            # Don't save empty conversations
+            if not messages:
+                # Send proper save result with failure instead of generic error
+                await websocket.send_json({
+                    "type": MessageType.SAVE_SESSION_RESULT,
+                    "success": False,
+                    "error": "Cannot save empty conversation",
+                    "timestamp": datetime.now().isoformat()
+                })
+                return
+            
+            # Generate metadata (timestamp, message count, etc.)
+            metadata = {
+                "message_count": len(messages),
+                "user_message_count": sum(1 for m in messages if m.get("role") == "user"),
+                "assistant_message_count": sum(1 for m in messages if m.get("role") == "assistant"),
+                "user_name": self._get_user_name() or "Anonymous",
+            }
+            
+            # Save session
+            session_id = self.conversation_storage.save_session(
+                messages=messages,
+                title=title,
+                session_id=session_id,
+                metadata=metadata
+            )
+            
+            # Send confirmation
+            await websocket.send_json({
+                "type": MessageType.SAVE_SESSION_RESULT,
+                "success": True,
+                "session_id": session_id,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            logger.info(f"Saved conversation session: {session_id}")
+            
+        except Exception as e:
+            logger.error(f"Error saving session: {e}")
+            await self._send_error(websocket, f"Failed to save conversation: {str(e)}")
+    
+    async def _handle_load_session(self, websocket: WebSocket, session_id: str):
+        """
+        Handle load session request.
+        
+        Args:
+            websocket: The WebSocket connection
+            session_id: ID of the session to load
+        """
+        try:
+            # Load session
+            session = self.conversation_storage.load_session(session_id)
+            
+            if not session:
+                await self._send_error(websocket, f"Session not found: {session_id}")
+                return
+            
+            # Update LLM client's conversation history
+            self.llm_client.conversation_history = session.get("messages", [])
+            
+            # Send confirmation
+            await websocket.send_json({
+                "type": MessageType.LOAD_SESSION_RESULT,
+                "success": True,
+                "session_id": session_id,
+                "title": session.get("title", ""),
+                "message_count": len(session.get("messages", [])),
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            logger.info(f"Loaded conversation session: {session_id}")
+            
+        except Exception as e:
+            logger.error(f"Error loading session: {e}")
+            await self._send_error(websocket, f"Failed to load conversation: {str(e)}")
+    
+    async def _handle_list_sessions(self, websocket: WebSocket):
+        """
+        Handle list sessions request.
+        
+        Args:
+            websocket: The WebSocket connection
+        """
+        try:
+            # Get sessions
+            sessions = self.conversation_storage.list_sessions()
+            
+            # Send list
+            await websocket.send_json({
+                "type": MessageType.LIST_SESSIONS_RESULT,
+                "sessions": sessions,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            logger.info(f"Listed {len(sessions)} conversation sessions")
+            
+        except Exception as e:
+            logger.error(f"Error listing sessions: {e}")
+            await self._send_error(websocket, f"Failed to list conversations: {str(e)}")
+    
+    async def _handle_delete_session(self, websocket: WebSocket, session_id: str):
+        """
+        Handle delete session request.
+        
+        Args:
+            websocket: The WebSocket connection
+            session_id: ID of the session to delete
+        """
+        try:
+            # Delete session
+            success = self.conversation_storage.delete_session(session_id)
+            
+            # Send confirmation
+            await websocket.send_json({
+                "type": MessageType.DELETE_SESSION_RESULT,
+                "success": success,
+                "session_id": session_id,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            if success:
+                logger.info(f"Deleted conversation session: {session_id}")
+            else:
+                logger.warning(f"Failed to delete conversation session: {session_id}")
+            
+        except Exception as e:
+            logger.error(f"Error deleting session: {e}")
+            await self._send_error(websocket, f"Failed to delete conversation: {str(e)}")
+    
     async def handle_client_message(self, websocket: WebSocket, message: Dict[str, Any]):
         """
         Handle a message from a WebSocket client.
@@ -643,6 +799,33 @@ class WebSocketManager:
                 # Update user profile
                 name = message.get("name", "")
                 await self._handle_update_user_profile(websocket, name)
+                
+            # Session management handlers
+            elif message_type == MessageType.SAVE_SESSION:
+                # Save current session
+                title = message.get("title")
+                session_id = message.get("session_id")  # For updating existing
+                await self._handle_save_session(websocket, title, session_id)
+                
+            elif message_type == MessageType.LOAD_SESSION:
+                # Load a saved session
+                session_id = message.get("session_id")
+                if not session_id:
+                    await self._send_error(websocket, "Session ID is required")
+                    return
+                await self._handle_load_session(websocket, session_id)
+                
+            elif message_type == MessageType.LIST_SESSIONS:
+                # List available sessions
+                await self._handle_list_sessions(websocket)
+                
+            elif message_type == MessageType.DELETE_SESSION:
+                # Delete a session
+                session_id = message.get("session_id")
+                if not session_id:
+                    await self._send_error(websocket, "Session ID is required")
+                    return
+                await self._handle_delete_session(websocket, session_id)
                 
             elif message_type == "ping":
                 # Respond to ping

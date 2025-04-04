@@ -23,7 +23,32 @@ export enum MessageType {
   USER_PROFILE = "user_profile",
   USER_PROFILE_UPDATED = "user_profile_updated",
   GREETING = "greeting",
-  SILENT_FOLLOWUP = "silent_followup"
+  SILENT_FOLLOWUP = "silent_followup",
+  
+  // Session storage message types
+  SAVE_SESSION = "save_session",
+  SAVE_SESSION_RESULT = "save_session_result",
+  LOAD_SESSION = "load_session",
+  LOAD_SESSION_RESULT = "load_session_result",
+  LIST_SESSIONS = "list_sessions",
+  LIST_SESSIONS_RESULT = "list_sessions_result",
+  DELETE_SESSION = "delete_session",
+  DELETE_SESSION_RESULT = "delete_session_result"
+}
+
+// Session interface
+export interface Session {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  metadata?: {
+    message_count?: number;
+    user_message_count?: number;
+    assistant_message_count?: number;
+    user_name?: string;
+    [key: string]: any;
+  };
 }
 
 // Event types
@@ -44,7 +69,11 @@ type WebSocketEventType =
   | 'system_prompt'
   | 'system_prompt_updated'
   | 'user_profile'
-  | 'user_profile_updated';
+  | 'user_profile_updated'
+  | 'save_session_result'
+  | 'load_session_result'
+  | 'list_sessions_result'
+  | 'delete_session_result';
 
 // WebSocket state
 export enum ConnectionState {
@@ -261,6 +290,63 @@ export class WebSocketService {
    */
   public sendSilentFollowUp(tier: number): boolean {
     return this.send(MessageType.SILENT_FOLLOWUP, { tier });
+  }
+
+  /**
+   * Save the current conversation session
+   * 
+   * @param title Optional title for the session
+   * @param sessionId Optional ID for overwriting an existing session
+   * @returns boolean indicating if the request was sent
+   */
+  public saveSession(title?: string, sessionId?: string): boolean {
+    return this.send(MessageType.SAVE_SESSION, {
+      title,
+      session_id: sessionId
+    });
+  }
+
+  /**
+   * Load a conversation session
+   * 
+   * @param sessionId ID of the session to load
+   * @returns boolean indicating if the request was sent
+   */
+  public loadSession(sessionId: string): boolean {
+    if (!sessionId) {
+      console.error('Session ID is required to load a session');
+      return false;
+    }
+    
+    return this.send(MessageType.LOAD_SESSION, {
+      session_id: sessionId
+    });
+  }
+
+  /**
+   * List all saved conversation sessions
+   * 
+   * @returns boolean indicating if the request was sent
+   */
+  public listSessions(): boolean {
+    return this.send(MessageType.LIST_SESSIONS);
+  }
+
+  /**
+   * Delete a conversation session
+   * 
+   * @param sessionId ID of the session to delete
+   * @returns boolean indicating if the request was sent
+   */
+  public deleteSession(sessionId: string): boolean {
+    if (!sessionId) {
+      console.error('Session ID is required to delete a session');
+      return false;
+    }
+    
+    return this.send(MessageType.DELETE_SESSION, {
+      session_id: sessionId
+    });
   }
 
   /**

@@ -26,7 +26,7 @@ class LLMClient:
         api_endpoint: str = "http://127.0.0.1:1234/v1/chat/completions",
         model: str = "default",
         temperature: float = 0.7,
-        max_tokens: int = 500,
+        max_tokens: int = 2048,
         timeout: int = 60
     ):
         """
