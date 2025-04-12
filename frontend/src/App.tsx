@@ -3,12 +3,10 @@ import ChatInterface from './components/ChatInterface';
 import Sidebar from './components/Sidebar';
 import { Menu } from 'lucide-react';
 import websocketService, { ConnectionState } from './services/websocket';
-import audioService, { AudioEvent } from './services/audio';
 
 function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
   
   // Track WebSocket connection
   useEffect(() => {
@@ -53,11 +51,6 @@ function App() {
       <Sidebar 
         onClose={() => setIsSidebarOpen(false)} 
         isConnected={isConnected}
-        isMuted={isMuted}
-        onMuteToggle={() => {
-          const newMuteState = audioService.toggleMicrophoneMute();
-          setIsMuted(newMuteState);
-        }}
         onReconnect={() => websocketService.connect()}
         onClearHistory={() => websocketService.clearHistory()}
       />

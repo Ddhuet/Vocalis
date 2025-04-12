@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
-import { VolumeX, Volume2, Settings, RefreshCw, Trash2, MessageSquare, Save } from 'lucide-react';
+import { Settings, RefreshCw, Trash2, MessageSquare, Save } from 'lucide-react';
 import PreferencesModal from './PreferencesModal';
 import SessionManager from './SessionManager';
 
 interface SidebarProps {
   onClose: () => void;
   isConnected: boolean;
-  isMuted: boolean;
-  onMuteToggle: () => void;
   onReconnect: () => void;
   onClearHistory: () => void;
 }
@@ -15,8 +13,6 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ 
   onClose, 
   isConnected,
-  isMuted,
-  onMuteToggle,
   onReconnect, 
   onClearHistory 
 }) => {
@@ -118,23 +114,6 @@ const Sidebar: React.FC<SidebarProps> = ({
             <h3 className="text-sm font-medium text-slate-400">Controls</h3>
             <div className="space-y-2">
               <button 
-                onClick={onMuteToggle}
-                className="flex items-center space-x-2 p-2 w-full rounded-lg hover:bg-slate-800/30 transition-colors"
-              >
-                {isMuted ? (
-                  <>
-                    <VolumeX className="w-4 h-4 text-red-400" />
-                    <span className="text-sm">Unmute</span>
-                  </>
-                ) : (
-                  <>
-                    <Volume2 className="w-4 h-4 text-emerald-400" />
-                    <span className="text-sm">Mute</span>
-                  </>
-                )}
-              </button>
-              
-              <button 
                 onClick={handleReconnect}
                 disabled={isReconnecting}
                 className="flex items-center justify-between space-x-2 p-2 w-full rounded-lg hover:bg-slate-800/30 transition-colors"
@@ -182,7 +161,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       </div>
       
       <div className="p-4 text-xs text-slate-500 border-t border-slate-800/50">
-        <p>Vocalis v0.1.0</p>
+        <p>Vocalis v1.5.0</p>
         <a 
           href="https://github.com/lex-au" 
           target="_blank" 

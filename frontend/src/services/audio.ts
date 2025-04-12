@@ -73,6 +73,7 @@ export class AudioService {
   // State tracking (for UI coordination)
   private isProcessing: boolean = false;
   private isGreeting: boolean = false;
+  private isVisionProcessing: boolean = false;
   
   // Voice detection parameters
   private isVoiceDetected: boolean = false;
@@ -101,6 +102,16 @@ export class AudioService {
     this.isGreeting = isGreeting;
     console.log(`Greeting state set to: ${isGreeting}`);
   }
+  
+  /**
+   * Set vision processing state from UI
+   * This prevents interrupts during vision processing
+   */
+  public setVisionProcessingState(isVisionProcessing: boolean): void {
+    this.isVisionProcessing = isVisionProcessing;
+    console.log(`Vision processing state set to: ${isVisionProcessing}`);
+  }
+  
 
   /**
    * Initialize the audio context
@@ -285,9 +296,12 @@ export class AudioService {
     
     // Check if energy is above threshold (voice detected)
     if (energy > this.voiceThreshold) {
-      // Check if processing or greeting state is active - if so, ignore voice detection entirely
-      if (this.isProcessing || this.isGreeting) {
-        const state = this.isProcessing ? "processing" : "greeting";
+      // Check if in a protected state - if so, ignore voice detection entirely
+      if (this.isProcessing || this.isVisionProcessing || this.isGreeting) {
+        let state = "processing";
+        if (this.isVisionProcessing) state = "vision_processing";
+        if (this.isGreeting) state = "greeting";
+        
         console.log(`Voice detected during ${state} (energy: ${energy.toFixed(4)}), ignoring`);
         // Skip further processing - don't even update isVoiceDetected
         
@@ -327,8 +341,8 @@ export class AudioService {
       this.lastVoiceTime = Date.now();
     }
     
-    // If in processing or greeting state, never accumulate audio buffer
-    if (this.isProcessing || this.isGreeting) {
+    // If in a protected state, never accumulate audio buffer
+    if (this.isProcessing || this.isVisionProcessing || this.isGreeting) {
       // Dispatch event for visualization only
       this.dispatchEvent(AudioEvent.RECORDING_DATA, { 
         buffer: bufferCopy,

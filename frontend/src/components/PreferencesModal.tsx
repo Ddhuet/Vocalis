@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Sparkles } from 'lucide-react';
+import { User, Sparkles, Eye } from 'lucide-react';
 import websocketService, { MessageType } from '../services/websocket';
 
 interface PreferencesModalProps {
@@ -13,13 +13,14 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'profile' | 'system'>('profile');
+  const [isVisionEnabled, setIsVisionEnabled] = useState(false);
   
   useEffect(() => {
     if (isOpen) {
       // Reset state when modal opens
       setSaveError(null);
       
-      // Fetch current system prompt and user profile
+      // Fetch current system prompt, user profile, and vision settings
       const handleSystemPrompt = (data: any) => {
         if (data && data.prompt) {
           setSystemPrompt(data.prompt);
@@ -32,19 +33,28 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
         }
       };
       
+      const handleVisionSettings = (data: any) => {
+        if (data && data.enabled !== undefined) {
+          setIsVisionEnabled(data.enabled);
+        }
+      };
+      
       // Listen for responses
       websocketService.addEventListener(MessageType.SYSTEM_PROMPT, handleSystemPrompt);
       websocketService.addEventListener(MessageType.USER_PROFILE, handleUserProfile);
+      websocketService.addEventListener(MessageType.VISION_SETTINGS as any, handleVisionSettings);
       
       // Request data
       websocketService.getSystemPrompt();
       websocketService.getUserProfile();
+      websocketService.getVisionSettings();
       
       console.log('Requested preferences data');
       
       return () => {
         websocketService.removeEventListener(MessageType.SYSTEM_PROMPT, handleSystemPrompt);
         websocketService.removeEventListener(MessageType.USER_PROFILE, handleUserProfile);
+        websocketService.removeEventListener(MessageType.VISION_SETTINGS as any, handleVisionSettings);
       };
     }
   }, [isOpen]);
@@ -52,6 +62,7 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
   // Listen for update confirmations
   useEffect(() => {
     let updateCount = 0;
+    const expectedUpdateCount = 3; // Always expect 3 updates: system prompt, user profile, and vision
     let success = true;
     
     const handlePromptUpdated = (data: any) => {
@@ -61,10 +72,10 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
         setSaveError('Failed to update system prompt. Please try again.');
       }
       
-      if (updateCount >= 2) {
+      if (updateCount >= expectedUpdateCount) {
         setIsSaving(false);
         if (success) {
-          // Close modal only if both updates succeeded
+          // Close modal only if all updates succeeded
           onClose();
         }
       }
@@ -77,10 +88,26 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
         setSaveError('Failed to update user profile. Please try again.');
       }
       
-      if (updateCount >= 2) {
+      if (updateCount >= expectedUpdateCount) {
         setIsSaving(false);
         if (success) {
-          // Close modal only if both updates succeeded
+          // Close modal only if all updates succeeded
+          onClose();
+        }
+      }
+    };
+    
+    const handleVisionSettingsUpdated = (data: any) => {
+      updateCount++;
+      if (!(data && data.success)) {
+        success = false;
+        setSaveError('Failed to update vision settings. Please try again.');
+      }
+      
+      if (updateCount >= expectedUpdateCount) {
+        setIsSaving(false);
+        if (success) {
+          // Close modal only if all updates succeeded
           onClose();
         }
       }
@@ -88,16 +115,18 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
     
     websocketService.addEventListener(MessageType.SYSTEM_PROMPT_UPDATED, handlePromptUpdated);
     websocketService.addEventListener(MessageType.USER_PROFILE_UPDATED, handleProfileUpdated);
+    websocketService.addEventListener(MessageType.VISION_SETTINGS_UPDATED as any, handleVisionSettingsUpdated);
     
     return () => {
       websocketService.removeEventListener(MessageType.SYSTEM_PROMPT_UPDATED, handlePromptUpdated);
       websocketService.removeEventListener(MessageType.USER_PROFILE_UPDATED, handleProfileUpdated);
+      websocketService.removeEventListener(MessageType.VISION_SETTINGS_UPDATED as any, handleVisionSettingsUpdated);
     };
-  }, [onClose]);
+  }, [onClose, activeTab]);
   
   const handleSave = () => {
-    // Check if system prompt is empty
-    if (!systemPrompt.trim()) {
+    // Check if system prompt is empty when in system tab
+    if (activeTab === 'system' && !systemPrompt.trim()) {
       setSaveError('System prompt cannot be empty');
       return;
     }
@@ -105,9 +134,10 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
     setIsSaving(true);
     setSaveError(null);
     
-    // Update both the system prompt and user profile
+    // Always update all settings
     websocketService.updateSystemPrompt(systemPrompt);
     websocketService.updateUserProfile(userName);
+    websocketService.updateVisionSettings(isVisionEnabled);
   };
   
   // backticks, in my code, in the year of our lord, 2025? no.
@@ -126,6 +156,40 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
   };
   
   // Tab rendering helpers
+  const renderVisionTab = () => (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <label className="text-sm font-medium text-slate-300">Vision</label>
+        <div className="flex items-center">
+          <div
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              isVisionEnabled ? 'bg-emerald-600' : 'bg-slate-700'
+            }`}
+            onClick={() => setIsVisionEnabled(!isVisionEnabled)}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                isVisionEnabled ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </div>
+          <span className="ml-3 text-sm text-slate-300">
+            {isVisionEnabled ? 'Enabled' : 'Disabled'}
+          </span>
+        </div>
+        <p className="text-xs text-slate-400">
+          When enabled, Vocalis will use computer vision to analyze images and provide visual context to your conversations.
+        </p>
+        <div className="mt-4 p-3 bg-blue-900/20 border border-blue-800/30 rounded-lg">
+          <p className="text-xs text-blue-300">
+            <strong>Coming Soon:</strong> Vision capabilities will allow Vocalis to see and describe images,
+            analyze documents, interpret charts, and provide visual assistance during your conversations.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+  
   const renderProfileTab = () => (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -218,13 +282,45 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
         
         {/* Content */}
         <div className="flex-1 overflow-auto p-4 space-y-4">
-          {activeTab === 'profile' ? renderProfileTab() : renderSystemTab()}
+          {activeTab === 'profile' 
+            ? renderProfileTab() 
+            : renderSystemTab()}
           
           {saveError && (
             <div className="text-red-400 text-sm p-2 bg-red-900/20 border border-red-900/30 rounded">
               {saveError}
             </div>
           )}
+        </div>
+        
+        {/* Vision Settings Section */}
+        <div className="px-4 py-3 border-t border-slate-700 bg-slate-800/30">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Eye className="w-4 h-4 text-indigo-400" />
+              <span className="text-sm font-medium text-slate-300">Vision</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  isVisionEnabled ? 'bg-indigo-600' : 'bg-slate-700'
+                }`}
+                onClick={() => setIsVisionEnabled(!isVisionEnabled)}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    isVisionEnabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </div>
+              <span className="text-xs text-slate-400">
+                {isVisionEnabled ? 'Enabled' : 'Disabled'}
+              </span>
+            </div>
+          </div>
+          <p className="text-xs text-slate-400 mt-1">
+            When enabled, Vocalis can analyze images and provide visual context (coming soon).
+          </p>
         </div>
         
         {/* Footer */}

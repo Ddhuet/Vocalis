@@ -17,6 +17,7 @@ from . import config
 from .services.transcription import WhisperTranscriber
 from .services.llm import LLMClient
 from .services.tts import TTSClient
+from .services.vision import vision_service
 
 # Import routes
 from .routes.websocket import websocket_endpoint
@@ -32,6 +33,7 @@ logger = logging.getLogger(__name__)
 transcription_service = None
 llm_service = None
 tts_service = None
+# Vision service is a singleton already initialized in its module
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -64,6 +66,10 @@ async def lifespan(app: FastAPI):
         voice=cfg["tts_voice"],
         output_format=cfg["tts_format"]
     )
+    
+    # Initialize vision service (will download model if not cached)
+    logger.info("Initializing vision service...")
+    vision_service.initialize()
     
     logger.info("All services initialized successfully")
     
@@ -118,7 +124,8 @@ async def health_check():
         "services": {
             "transcription": transcription_service is not None,
             "llm": llm_service is not None,
-            "tts": tts_service is not None
+            "tts": tts_service is not None,
+            "vision": vision_service.is_ready()
         },
         "config": {
             "whisper_model": config.WHISPER_MODEL,
@@ -130,7 +137,7 @@ async def health_check():
 @app.get("/config")
 async def get_full_config():
     """Get full configuration."""
-    if not all([transcription_service, llm_service, tts_service]):
+    if not all([transcription_service, llm_service, tts_service]) or not vision_service.is_ready():
         raise HTTPException(status_code=503, detail="Services not initialized")
     
     return {

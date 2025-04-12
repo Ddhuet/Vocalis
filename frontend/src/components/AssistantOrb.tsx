@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 
 interface AssistantOrbProps {
-  state: 'idle' | 'greeting' | 'listening' | 'processing' | 'speaking';
+  state: 'idle' | 'greeting' | 'listening' | 'processing' | 'speaking' | 'vision_file' | 'vision_processing' | 'vision_asr';
 }
 
 const AssistantOrb: React.FC<AssistantOrbProps> = ({ state }) => {
@@ -84,7 +84,25 @@ const AssistantOrb: React.FC<AssistantOrbProps> = ({ state }) => {
     let baseGradient;
     
     // Change gradient colors based on state
-    if (state === 'listening') {
+    if (state === 'vision_file') {
+      // Light blue/cyan for vision file
+      baseGradient = ctx.createLinearGradient(0, 0, width, height);
+      baseGradient.addColorStop(0, 'rgba(125, 211, 252, 0.15)'); // sky-300
+      baseGradient.addColorStop(0.5, 'rgba(186, 230, 253, 0.1)'); // sky-200
+      baseGradient.addColorStop(1, 'rgba(224, 242, 254, 0.12)'); // sky-100
+    } else if (state === 'vision_asr') {
+      // Bright green for vision ASR (matching listening)
+      baseGradient = ctx.createLinearGradient(0, 0, width, height);
+      baseGradient.addColorStop(0, 'rgba(72, 255, 167, 0.15)');
+      baseGradient.addColorStop(0.5, 'rgba(135, 206, 235, 0.1)');
+      baseGradient.addColorStop(1, 'rgba(186, 85, 255, 0.08)');
+    } else if (state === 'vision_processing') {
+      // Teal for vision processing
+      baseGradient = ctx.createLinearGradient(0, 0, width, height);
+      baseGradient.addColorStop(0, 'rgba(183, 245, 235, 0.15)');
+      baseGradient.addColorStop(0.5, 'rgba(153, 235, 225, 0.12)');
+      baseGradient.addColorStop(1, 'rgba(45, 212, 191, 0.15)');
+    } else if (state === 'listening') {
       // Bright green for listening
       baseGradient = ctx.createLinearGradient(0, 0, width, height);
       baseGradient.addColorStop(0, 'rgba(72, 255, 167, 0.15)');
@@ -164,7 +182,13 @@ const AssistantOrb: React.FC<AssistantOrbProps> = ({ state }) => {
       
       // Color based on state
       let baseHue;
-      if (state === 'listening') {
+      if (state === 'vision_file') {
+        baseHue = wave === 0 ? 195 : wave === 1 ? 200 : 205; // Light blue/cyan range
+      } else if (state === 'vision_asr') {
+        baseHue = wave === 0 ? 145 : wave === 1 ? 160 : 175; // Green range (matching listening)
+      } else if (state === 'vision_processing') {
+        baseHue = wave === 0 ? 175 : wave === 1 ? 165 : 180; // Teal range
+      } else if (state === 'listening') {
         baseHue = wave === 0 ? 145 : wave === 1 ? 160 : 175; // Green range
       } else if (state === 'greeting') {
         baseHue = wave === 0 ? 210 : wave === 1 ? 220 : 200; // Blue range
@@ -216,7 +240,36 @@ const AssistantOrb: React.FC<AssistantOrbProps> = ({ state }) => {
     );
     
     // Color based on state
-    if (state === 'listening') {
+    if (state === 'vision_file') {
+      // Light blue/cyan glow for vision file
+      const pulseIntensity = 0.25 + Math.sin(time * 2) * 0.05;
+      glow.addColorStop(0, `rgba(125, 211, 252, ${pulseIntensity})`); // sky-300
+      glow.addColorStop(0.5, `rgba(186, 230, 253, ${pulseIntensity * 0.4})`); // sky-200
+      glow.addColorStop(1, 'rgba(224, 242, 254, 0)'); // sky-100
+    } else if (state === 'vision_processing') {
+      // Rotating teal glow for vision processing
+      const rotationX = Math.cos(time * 2) * width * 0.2;
+      const rotationY = Math.sin(time * 2) * height * 0.2;
+      ctx.ellipse(
+        width/2 + rotationX, height/2 + rotationY, 
+        width * 0.3, height * 0.3, 
+        time, 0, Math.PI * 2
+      );
+      ctx.filter = 'blur(30px)';
+      ctx.fillStyle = 'rgba(45, 212, 191, 0.1)';
+      ctx.fill();
+      ctx.filter = 'none';
+      
+      glow.addColorStop(0, 'rgba(45, 212, 191, 0.15)');
+      glow.addColorStop(0.5, 'rgba(45, 212, 191, 0.05)');
+      glow.addColorStop(1, 'rgba(45, 212, 191, 0)');
+    } else if (state === 'vision_asr') {
+      // Emerald pulsing glow for vision ASR (matching listening state)
+      const pulseIntensity = 0.25 + Math.sin(time * 2.5) * 0.07;
+      glow.addColorStop(0, `rgba(72, 255, 167, ${pulseIntensity})`); 
+      glow.addColorStop(0.5, `rgba(72, 255, 167, ${pulseIntensity * 0.4})`);
+      glow.addColorStop(1, 'rgba(72, 255, 167, 0)');
+    } else if (state === 'listening') {
       // Pulsing green glow for listening
       const pulseIntensity = 0.2 + Math.sin(time * 3) * 0.1;
       glow.addColorStop(0, `rgba(72, 255, 167, ${pulseIntensity})`); 
@@ -319,6 +372,9 @@ const AssistantOrb: React.FC<AssistantOrbProps> = ({ state }) => {
         ${state === 'greeting' ? 'scale-105' : ''}
         ${state === 'processing' ? 'scale-105' : ''}
         ${state === 'speaking' ? 'scale-110 pulse-slow' : ''}
+        ${state === 'vision_file' ? 'scale-110' : ''}
+        ${state === 'vision_processing' ? 'scale-105' : ''}
+        ${state === 'vision_asr' ? 'scale-110' : ''}
       `}
       style={{
         width: `${dimensions.width}px`,
@@ -329,6 +385,9 @@ const AssistantOrb: React.FC<AssistantOrbProps> = ({ state }) => {
       <div className="absolute -inset-32 rounded-full">
         <div className={`
           absolute inset-0 blur-2xl transform scale-90
+          ${state === 'vision_file' ? 'bg-gradient-radial from-sky-300/[0.04] via-sky-200/[0.01] to-transparent' : ''}
+          ${state === 'vision_processing' ? 'bg-gradient-radial from-teal-300/[0.04] via-teal-300/[0.01] to-transparent' : ''}
+          ${state === 'vision_asr' ? 'bg-gradient-radial from-emerald-500/[0.04] via-emerald-500/[0.01] to-transparent' : ''}
           ${state === 'listening' ? 'bg-gradient-radial from-emerald-500/[0.04] via-emerald-500/[0.01] to-transparent' : ''}
           ${state === 'greeting' ? 'bg-gradient-radial from-blue-500/[0.04] via-blue-500/[0.01] to-transparent' : ''}
           ${state === 'processing' ? 'bg-gradient-radial from-purple-500/[0.04] via-purple-500/[0.01] to-transparent' : ''}
@@ -351,6 +410,9 @@ const AssistantOrb: React.FC<AssistantOrbProps> = ({ state }) => {
         absolute inset-0 rounded-full shadow-[0_0_60px_-8px_rgba(72,255,167,0.4)]
         backdrop-blur-md overflow-hidden border
         ring-1
+        ${state === 'vision_file' ? 'bg-gradient-to-b from-sky-300/50 via-sky-200/45 to-sky-100/50 border-sky-300/40 ring-sky-200/30' : ''}
+        ${state === 'vision_processing' ? 'bg-gradient-to-b from-teal-300/45 via-teal-200/40 to-teal-300/45 border-teal-400/30 ring-teal-400/20' : ''}
+        ${state === 'vision_asr' ? 'bg-gradient-to-b from-emerald-300/50 via-emerald-200/45 to-emerald-300/50 border-emerald-400/40 ring-emerald-400/30' : ''}
         ${state === 'listening' ? 'bg-gradient-to-b from-emerald-300/50 via-emerald-200/45 to-emerald-300/50 border-emerald-400/40 ring-emerald-400/30' : ''}
         ${state === 'greeting' ? 'bg-gradient-to-b from-blue-300/50 via-blue-200/45 to-blue-300/50 border-blue-400/40 ring-blue-400/30' : ''}
         ${state === 'processing' ? 'bg-gradient-to-b from-purple-300/45 via-blue-300/40 to-purple-300/45 border-purple-400/30 ring-purple-400/20' : ''}

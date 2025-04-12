@@ -12,6 +12,15 @@ A sophisticated AI assistant with speech-to-speech capabilities built on a moder
 
 ## Changelog
 
+**v1.5.0** (Vision Update) - April 12, 2025
+- 🔍 New image analysis capability powered by [SmolVLM-256M-Instruct model](https://huggingface.co/HuggingFaceTB/SmolVLM-256M-Instruct)
+- 🖼️ Seamless image upload and processing interface
+- 🔄 Contextual conversation continuation based on image understanding
+- 🧩 Multi-modal conversation support (text, speech, and images)
+- 💾 Advanced session management for saving and retrieving conversations
+- 🎨 Improved UI with central call button and cleaner control layout
+- 🔌 Simplified sidebar without redundant controls
+
 **v1.0.0** (Initial Release) - March 31, 2025
 - ✨ Revolutionary barge-in technology for natural conversation flow
 - 🔊 Ultra low-latency audio streaming with adaptive buffering
@@ -30,6 +39,8 @@ A sophisticated AI assistant with speech-to-speech capabilities built on a moder
 - **💬 Intelligent Follow-Ups** - System detects silence and continues conversation with natural follow-up questions
 - **🔄 Conversation Memory** - Maintains context throughout the conversation session
 - **🧠 Contextual Understanding** - Processes conversation history for coherent, relevant responses
+- **🖼️ Image Analysis** - Upload and discuss images with integrated visual understanding
+- **💾 Session Management** - Save, load, and manage conversation sessions with customizable titles
 
 ### ⚡ Ultra-Responsive Performance
 
@@ -52,7 +63,7 @@ A sophisticated AI assistant with speech-to-speech capabilities built on a moder
 
 ### 🛠️ Technical Excellence
 
-- **🔍 High-Accuracy VAD** - Superior voice activity detection using Silero VAD
+- **🔍 High-Accuracy VAD** - Superior voice activity detection using custom-built VAD
 - **🗣️ Optimized Whisper Integration** - Faster-Whisper for rapid transcription
 - **🔊 Real-Time TTS** - Chunked audio delivery for immediate playback
 - **🖥️ Hardware Flexibility** - CUDA acceleration with CPU fallback options
@@ -123,7 +134,7 @@ Vocalis is designed to work with OpenAI-compatible API endpoints for both LLM an
 
 - **LLM (Language Model)**: By default, the backend is configured to use [LM Studio](https://lmstudio.ai/) running locally. This provides a convenient way to run local language models compatible with OpenAI's API format.
 
-- **Text-to-Speech (TTS)**: For voice generation, the system works with [Orpheus-FASTAPI](https://github.com/Lex-au/Orpheus-FastAPI), my high-quality TTS server with OpenAI-compatible endpoints. (though for lower latency, you can use something less resource intensive)
+- **Text-to-Speech (TTS)**: For voice generation, the system works with [Orpheus-FASTAPI](https://github.com/Lex-au/Orpheus-FastAPI), a high-quality TTS server with OpenAI-compatible endpoints.
 
 Both services can be configured in the `backend/.env` file. The system requires these external services to function properly, as Vocalis acts as an orchestration layer combining speech recognition, language model inference, and speech synthesis.
 
@@ -131,25 +142,68 @@ Both services can be configured in the `backend/.env` file. The system requires 
 
 ![Assistant Interface](https://via.placeholder.com/800x450/0d0a1f/ffffff?text=Vocalis+Interface+Demo)
 
+## Session Management
+
+Vocalis includes a robust session management system that allows users to save, load, and organize their conversations:
+
+### Key Features
+
+- **Save Conversations**: Save the current conversation state with a custom title
+- **Load Previous Sessions**: Return to any saved conversation exactly as you left it
+- **Edit Session Titles**: Rename sessions for better organization
+- **Delete Unwanted Sessions**: Remove conversations you no longer need
+- **Session Metadata**: View additional information like message count
+- **Automatic Timestamps**: Sessions track both creation and last update times
+
+### Technical Implementation
+
+The session system uses a two-part architecture:
+
+1. **Backend Storage**:
+   - Conversations are stored as JSON files in a dedicated directory
+   - Each session maintains its complete message history
+   - Asynchronous file I/O prevents performance impacts
+   - UUID-based session identification ensures uniqueness
+
+2. **Frontend Interface**:
+   - Intuitive sidebar UI for session management
+   - Real-time session status updates
+   - Active session indicator
+   - Session creation with optional custom titles
+
+### Usage Flow
+
+1. Start a new conversation with the assistant
+2. Click "Save As New Conversation" to preserve the current state
+3. Continue your conversation or load a different session
+4. Return to any saved session at any time to continue where you left off
+5. Edit session titles or delete unwanted sessions as needed
+
+This persistent storage system ensures you never lose valuable conversations and can maintain separate contexts for different topics or projects.
+
 ## Architecture Overview
 
 ```mermaid
 graph TB
     subgraph "Frontend (React)"
         AudioCapture[Audio Capture]
-        AudioVisualizer[Existing Audio Visualizer]
+        AudioVisualizer[Audio Visualizer]
         WebSocket[WebSocket Client]
         AudioOutput[Audio Output]
         UIState[UI State Management]
+        ImageUpload[Image Upload]
+        SessionManager[Session Manager]
     end
     
     subgraph "Backend (FastAPI)"
         WSServer[WebSocket Server]
-        VAD[Voice Activity Detection]
+        VAD[Custom Voice Activity Detection]
         WhisperSTT[Faster Whisper]
         LLMClient[LLM Client]
         TTSClient[TTS Client]
         AudioProcessing[Audio Processing]
+        VisionService[SmolVLM Vision Service]
+        StorageService[Conversation Storage]
         EnvConfig[Environment Config]
     end
     
@@ -158,11 +212,26 @@ graph TB
         TTSEndpoint["TTS API (localhost:5005)"]
     end
     
+    subgraph "Storage"
+        SessionFiles["Session JSON Files"]
+    end
+    
     AudioCapture -->|Audio Stream| WebSocket
+    ImageUpload -->|Image Data| WebSocket
+    SessionManager -->|Session Commands| WebSocket
     WebSocket <-->|WebSocket Protocol| WSServer
     WSServer --> VAD
     VAD -->|Audio with Speech| WhisperSTT
     WhisperSTT -->|Transcribed Text| LLMClient
+    
+    WebSocket -->|Image Data| WSServer
+    WSServer -->|Process Image| VisionService
+    VisionService -->|Image Description| LLMClient
+    
+    WebSocket -->|Session Operations| WSServer
+    WSServer -->|Store/Load/List/Delete| StorageService
+    StorageService <-->|Read/Write JSON| SessionFiles
+    
     LLMClient -->|API Request| LLMEndpoint
     LLMEndpoint -->|Response Text| LLMClient
     LLMClient -->|Response Text| TTSClient
@@ -174,6 +243,8 @@ graph TB
     EnvConfig -->|Configuration| WhisperSTT
     EnvConfig -->|Configuration| LLMClient
     EnvConfig -->|Configuration| TTSClient
+    EnvConfig -->|Configuration| VisionService
+    EnvConfig -->|Configuration| StorageService
     UIState <--> WebSocket
 ```
 
@@ -191,6 +262,8 @@ graph TD
         FE_State[State Management]
         FE_InterruptDetector[Interrupt Detector]
         FE_SilenceDetector[Silence Detector]
+        FE_ImageUpload[Image Upload Handler]
+        FE_SessionUI[Session Manager UI]
         
         subgraph "UI Components"
             UI_Orb[AssistantOrb]
@@ -198,6 +271,7 @@ graph TD
             UI_Chat[ChatInterface]
             UI_Prefs[PreferencesModal]
             UI_Sidebar[Sidebar]
+            UI_Sessions[SessionManager]
         end
         
         subgraph "Services"
@@ -215,23 +289,30 @@ graph TD
         BE_ConversationManager[Conversation Manager]
         
         subgraph "Services"
-            BE_VAD[Voice Activity Detection]
-            BE_Whisper[Speech Transcription]
+            BE_Transcription[Speech Transcription & VAD]
             BE_LLM[LLM Client]
             BE_TTS[TTS Client]
+            BE_Vision[SmolVLM Vision Service]
+            BE_Storage[Conversation Storage]
         end
         
         subgraph "Conversation Features"
             BE_GreetingSystem[AI Greeting System]
             BE_FollowUpSystem[Follow-Up Generator]
             BE_ContextMemory[Context Memory]
+            BE_VisionContext[Image Context Manager]
+            BE_SessionMgmt[Session Management]
         end
     end
     
-    %% External Services
+    %% External Services & Storage
     subgraph "External Services"
         LLM_API[LM Studio OpenAI-compatible API]
         TTS_API[Orpheus-FASTAPI TTS]
+    end
+    
+    subgraph "Persistent Storage"
+        JSON_Files[Session JSON Files]
     end
     
     %% Data Flow - Main Path
@@ -240,9 +321,9 @@ graph TD
     FE_WebSocketService -->|Binary Audio Data| FE_WebSocket
     FE_WebSocket <-->|WebSocket Protocol| BE_WebSocket
     
-    BE_WebSocket -->|Audio Chunks| BE_VAD
-    BE_VAD -->|Speech Detected| BE_Whisper
-    BE_Whisper -->|Transcribed Text| BE_ConversationManager
+    BE_WebSocket -->|Audio Chunks| BE_Transcription
+    BE_Transcription -->|Voice Activity Detection| BE_Transcription
+    BE_Transcription -->|Transcribed Text| BE_ConversationManager
     BE_ConversationManager -->|Format Prompt| BE_LLM
     BE_LLM -->|API Request| LLM_API
     LLM_API -->|Response Text| BE_LLM
@@ -254,6 +335,25 @@ graph TD
     BE_WebSocket -->|Audio Response| FE_WebSocket
     FE_WebSocket -->|Audio Data| FE_AudioService
     FE_AudioService -->|Playback| FE_Audio
+    
+    %% Session Management Flow
+    FE_SessionUI -->|Save/Load/List/Delete| FE_WebSocketService
+    FE_WebSocketService -->|Session Commands| FE_WebSocket
+    FE_WebSocket -->|Session Operations| BE_WebSocket
+    BE_WebSocket -->|Session Management| BE_SessionMgmt
+    BE_SessionMgmt -->|Store/Retrieve| BE_Storage
+    BE_Storage <-->|Persist Data| JSON_Files
+    BE_Storage -->|Session Response| BE_WebSocket
+    BE_WebSocket -->|Session Status| FE_WebSocket
+    FE_WebSocket -->|Update UI| FE_SessionUI
+    
+    %% Vision Flow
+    FE_ImageUpload -->|Image Data| FE_WebSocketService
+    FE_WebSocketService -->|Image Base64| FE_WebSocket
+    FE_WebSocket -->|Image Data| BE_WebSocket
+    BE_WebSocket -->|Process Image| BE_Vision
+    BE_Vision -->|Image Description| BE_VisionContext
+    BE_VisionContext -->|Augmented Context| BE_ConversationManager
     
     %% Advanced Feature Paths
     
@@ -278,18 +378,22 @@ graph TD
     
     %% 4. Context Management
     BE_ConversationManager <-->|Store/Retrieve Context| BE_ContextMemory
+    BE_SessionMgmt <-->|Save/Load Messages| BE_ContextMemory
     
     %% UI Interactions
     FE_State <-->|State Updates| FE_UI
     FE_WebSocketService -->|Connection Status| FE_State
     FE_AudioService -->|Audio Status| FE_State
     FE_InterruptDetector -->|Interrupt Status| FE_State
+    FE_ImageUpload -->|Upload Status| FE_State
     
     %% Configuration
     BE_Config -->|Environment Settings| BE_Main
     BE_Config -->|API Settings| BE_LLM
     BE_Config -->|API Settings| BE_TTS
-    BE_Config -->|Model Config| BE_Whisper
+    BE_Config -->|Model Config| BE_Transcription
+    BE_Config -->|Vision Settings| BE_Vision
+    BE_Config -->|Storage Settings| BE_Storage
     BE_Config -->|Conversation Settings| BE_GreetingSystem
     BE_Config -->|Follow-up Settings| BE_FollowUpSystem
     
@@ -301,139 +405,22 @@ graph TD
     UI_Chat -->|Displays Transcript| FE_State
     FE_UI -->|Renders| UI_Prefs
     FE_UI -->|Renders| UI_Sidebar
+    FE_UI -->|Renders| UI_Sessions
+    UI_Sessions -->|Manages Sessions| FE_SessionUI
     
     %% Technology Labels
     classDef frontend fill:#61DAFB,color:#000,stroke:#61DAFB
     classDef backend fill:#009688,color:#fff,stroke:#009688
     classDef external fill:#FF9800,color:#000,stroke:#FF9800
     classDef feature fill:#E91E63,color:#fff,stroke:#E91E63
+    classDef storage fill:#9C27B0,color:#fff,stroke:#9C27B0
     
-    class FE_Audio,FE_WebSocket,FE_UI,FE_State,FE_AudioService,FE_WebSocketService,UI_Orb,UI_Stars,UI_Chat,UI_Prefs,UI_Sidebar frontend
-    class BE_Main,BE_Config,BE_WebSocket,BE_VAD,BE_Whisper,BE_LLM,BE_TTS backend
+    class FE_Audio,FE_WebSocket,FE_UI,FE_State,FE_AudioService,FE_WebSocketService,UI_Orb,UI_Stars,UI_Chat,UI_Prefs,UI_Sidebar,FE_ImageUpload,FE_SessionUI,UI_Sessions frontend
+    class BE_Main,BE_Config,BE_WebSocket,BE_Transcription,BE_LLM,BE_TTS,BE_Vision,BE_Storage backend
     class LLM_API,TTS_API external
-    class FE_InterruptDetector,FE_SilenceDetector,BE_InterruptHandler,BE_GreetingSystem,BE_FollowUpSystem,BE_ConversationManager,BE_ContextMemory feature
+    class FE_InterruptDetector,FE_SilenceDetector,BE_InterruptHandler,BE_GreetingSystem,BE_FollowUpSystem,BE_ConversationManager,BE_ContextMemory,BE_VisionContext,BE_SessionMgmt feature
+    class JSON_Files storage
 ```
-
-### Key Advanced Components
-
-#### Interrupt System
-- **Frontend Interrupt Detector** monitors for user speech during AI responses
-- **Backend Interrupt Handler** immediately cancels all processing when user interrupts
-- Dotted lines show how interruption signals propagate through the system
-- Audio buffers are cleared instantly to prevent audio artifacts
-
-#### AI-Initiated Conversation
-- **Greeting System** generates contextual welcomes at session start
-- **Follow-Up Generator** creates natural continuations during silence
-- **Silence Detector** identifies when the user hasn't spoken
-- **Context Memory** maintains conversation history for coherence
-
-#### Conversation Management
-- **Conversation Manager** orchestrates the entire interaction flow
-- Handles transitions between different conversation states
-- Maintains session context and manages conversation turn-taking
-
-## Implementation Components
-
-### 1. Backend Development (FastAPI)
-
-#### Project Structure
-```
-backend/
-├── main.py              # FastAPI application entry point
-├── .env                 # Environment variables
-├── config.py            # Configuration from environment
-├── requirements.txt     # Dependencies
-├── services/
-│   ├── vad.py           # Voice Activity Detection
-│   ├── transcription.py # Faster Whisper integration
-│   ├── llm.py           # LLM API client
-│   ├── tts.py           # TTS API client
-├── routes/
-│   ├── websocket.py     # WebSocket endpoint for audio
-```
-
-#### Key Components
-
-1. **Environment Configuration (`config.py`)**
-   - Load from `.env` file
-   - Configure Whisper model size (small, medium, large)
-   - Set LLM/TTS endpoint URLs
-   - Audio processing parameters
-
-2. **Voice Activity Detection (`services/vad.py`)**
-   - Use `silero-vad` for superior speech detection accuracy
-   - Implement buffering for continuous speech segments
-   - Configure sensitivity thresholds
-
-3. **Speech-to-Text (`services/transcription.py`)**
-   - Integrate Faster Whisper with tiny.en model (optimized for English, minimal latency)
-   - Implement streaming transcription
-   - Manage transcription session state
-
-4. **LLM Integration (`services/llm.py`)**
-   - Connect to local LLM endpoint (http://127.0.0.1:1234/v1/chat/completions)
-   - Format requests to match OpenAI API structure
-   - Process responses and extract text
-
-5. **TTS Integration (`services/tts.py`)**
-   - Connect to local TTS endpoint (http://localhost:5005/v1/audio/speech)
-   - Convert text to speech audio data
-   - Configure voice parameters (tts-1 model with "tara" voice)
-
-6. **WebSocket Handler (`routes/websocket.py`)**
-   - Establish bidirectional audio streaming
-   - Manage audio data flow through processing pipeline
-   - Handle connection state and errors
-
-### 2. Frontend Extensions
-
-#### 🎨 UI Components
-
-- **AssistantOrb**
-  - Dynamic visual representation of assistant state
-  - Animated transitions between states
-  - Particle effects and glow animations
-  - Responsive sizing and positioning
-
-- **StatusIndicators**
-  - Connection status (connected/disconnected)
-  - Processing state (listening/thinking/speaking)
-  - Call status (active/inactive)
-  - Error notifications with clean styling
-
-- **TranscriptDisplay**
-  - Real-time speech recognition display
-  - Fade-in/fade-out animations
-  - Contextual styling based on speaker
-
-#### 🔊 Audio Processing
-
-- **AudioCapture**
-  - WebRTC audio streaming
-  - Voice activity monitoring
-  - Adaptive noise filtering
-  - Dynamic sensitivity adjustment
-
-- **AudioPlayback**
-  - Chunk-based audio streaming
-  - Buffer management for smooth playback
-  - Interruption handling
-  - Volume normalization
-
-#### 🧠 Conversation Logic
-
-- **FollowUpSystem**
-  - Silence detection with configurable thresholds
-  - Contextual follow-up generation
-  - Multi-tier follow-up strategy
-  - Natural conversation cadence
-
-- **InterruptionHandler**
-  - Mid-speech detection of new user input
-  - Clean audio transition during interruption
-  - Context preservation across interruptions
-  - Server-side processing cancelation
 
 ## Low-Latency TTS Streaming Architecture
 
@@ -445,15 +432,22 @@ sequenceDiagram
     participant AudioBuffer as Frontend Audio Buffer
     participant SilenceDetector as Frontend Silence Detector
     participant InterruptDetector as Frontend Interrupt Detector
+    participant SessionMgr as Session Manager
     participant Backend as FastAPI Backend
     participant IntHandler as Backend Interrupt Handler
+    participant Transcription as Speech Transcription & VAD
+    participant VisionService as Vision Service (SmolVLM)
+    participant StorageService as Conversation Storage
     participant LLM as LLM API (LM Studio)
     participant TTS as TTS API (Orpheus-FASTAPI)
     
     Note over Frontend,TTS: Normal Speech Flow
     
     Frontend->>Backend: Audio stream (chunks)
-    Backend->>Backend: VAD + Transcription
+    Backend->>Transcription: Process audio
+    Transcription->>Transcription: Voice activity detection
+    Transcription->>Transcription: Speech-to-text
+    Transcription->>Backend: Transcribed text
     Backend->>LLM: Text request with context
     activate LLM
     LLM-->>Backend: Text response (streaming)
@@ -479,6 +473,40 @@ sequenceDiagram
         Frontend->>AudioBuffer: Queue chunk
         AudioBuffer->>Frontend: Continue playback
     end
+    deactivate TTS
+    
+    Note over Frontend,TTS: Session Management Flow
+    
+    SessionMgr->>Backend: Save current session
+    Backend->>StorageService: Store conversation
+    StorageService-->>Backend: Session ID
+    Backend-->>SessionMgr: Session saved confirmation
+    
+    SessionMgr->>Backend: Load specific session
+    Backend->>StorageService: Retrieve session data
+    StorageService-->>Backend: Conversation history
+    Backend->>Backend: Restore conversation context
+    Backend-->>SessionMgr: Session loaded confirmation
+    
+    Note over Frontend,TTS: Vision Processing Flow
+    
+    Frontend->>Backend: Upload image
+    Backend->>VisionService: Process image
+    activate VisionService
+    VisionService-->>Backend: Image description
+    deactivate VisionService
+    Backend->>Backend: Add to conversation context
+    Frontend->>Backend: Audio question about image
+    Backend->>Transcription: Process audio
+    Transcription->>Backend: Transcribed text
+    Backend->>LLM: Text request with image context
+    activate LLM
+    LLM-->>Backend: Image-informed response
+    deactivate LLM
+    Backend->>TTS: Request TTS
+    activate TTS
+    TTS-->>Backend: Audio response
+    Backend-->>Frontend: Stream audio response
     deactivate TTS
     
     Note over Frontend,TTS: Interrupt Flow (Barge-in)
@@ -517,6 +545,30 @@ sequenceDiagram
         Frontend->>AudioBuffer: Play follow-up
     end
 ```
+
+### Image Analysis Process
+
+Vocalis now includes visual understanding capabilities through the SmolVLM-256M-Instruct model:
+
+1. **Image Upload**:
+   - Users can click the vision button in the interface
+   - A file picker allows selecting images up to 5MB
+   - Images are encoded as base64 and sent to the backend
+
+2. **Vision Processing**:
+   - The SmolVLM model processes the image with transformers
+   - The model generates a detailed description of the image contents
+   - This description is added to the conversation context
+
+3. **Contextual Continuation**:
+   - After image processing, users can ask questions about the image
+   - The system maintains awareness of the image context
+   - Responses are generated with understanding of the visual content
+
+4. **Multi-Modal Integration**:
+   - The interface provides visual feedback during image processing
+   - Transcripts and responses flow naturally between text and visual content
+   - The conversation maintains coherence across modalities
 
 ### Streaming Architecture Features
 
@@ -602,17 +654,21 @@ Vocalis/
 ├── setup.sh             # Unix one-time setup script
 ├── run.sh               # Unix run script
 ├── install-deps.sh      # Unix dependency update script
+├── conversations/       # Directory for saved session files
 ├── backend/
 │   ├── .env
 │   ├── main.py
 │   ├── config.py
 │   ├── requirements.txt
 │   ├── services/
-│   │   ├── vad.py
-│   │   ├── transcription.py
+│   │   ├── __init__.py
+│   │   ├── conversation_storage.py
 │   │   ├── llm.py
+│   │   ├── transcription.py  # Includes VAD functionality
 │   │   ├── tts.py
+│   │   ├── vision.py
 │   ├── routes/
+│   │   ├── __init__.py
 │   │   ├── websocket.py
 ├── frontend/
 │   ├── public/
@@ -621,19 +677,24 @@ Vocalis/
 │   │   │   ├── AssistantOrb.tsx
 │   │   │   ├── BackgroundStars.tsx
 │   │   │   ├── ChatInterface.tsx
+│   │   │   ├── PreferencesModal.tsx
+│   │   │   ├── SessionManager.tsx
 │   │   │   ├── Sidebar.tsx
 │   │   ├── services/
-│   │   │   ├── websocket.ts
 │   │   │   ├── audio.ts
+│   │   │   ├── websocket.ts
 │   │   ├── utils/
 │   │   │   ├── hooks.ts
 │   │   ├── App.tsx
 │   │   ├── main.tsx
 │   │   ├── index.css
+│   │   ├── vite-env.d.ts
 │   ├── package.json
 │   ├── tsconfig.json
+│   ├── tsconfig.node.json
 │   ├── vite.config.ts
 │   ├── tailwind.config.js
+│   ├── postcss.config.js
 ```
 
 ## Dependencies
@@ -645,7 +706,7 @@ uvicorn==0.27.1
 python-dotenv==1.0.1
 websockets==12.0
 numpy==1.26.4
-silero-vad
+transformers
 faster-whisper==1.1.1
 requests==2.31.0
 python-multipart==0.0.9
@@ -673,6 +734,8 @@ web-audio-api
 - **Conversation Model**: Multi-turn with context preservation
 - **State Management**: React hooks with custom state machine
 - **Animation System**: CSS transitions with hardware acceleration
+- **Vision Processing**: SmolVLM-256M-Instruct for efficient image understanding
+- **Session Storage**: Asynchronous JSON file-based persistence with UUID identifiers
 
 ## License
 
