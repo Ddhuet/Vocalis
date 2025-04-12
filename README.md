@@ -727,7 +727,7 @@ web-audio-api
 
 ## Technical Decisions
 
-- **Audio Format**: Native WebRTC audio (44.1kHz, 16-bit PCM)
+- **Audio Format**: Web Audio API (44.1kHz, 16-bit PCM)
 - **Browser Compatibility**: Targeting modern Chrome browsers
 - **Error Handling**: Graceful degradation with user-friendly messages
 - **Microphone Permissions**: Standard browser permission flow with clear guidance
