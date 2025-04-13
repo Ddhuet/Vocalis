@@ -1,4 +1,4 @@
-![Vocalis - Speech-to-Speech AI Assistant](https://lex-au.github.io/Vocalis/Vocalis_Header.png)
+![Vocalis - Speech-to-Speech AI Assistant](https://via.placeholder.com/1200x300/1a1025/ffffff?text=Vocalis:+Speech-to-Speech+AI+Assistant)
 
 # Vocalis
 
@@ -71,15 +71,39 @@ A sophisticated AI assistant with speech-to-speech capabilities built on a moder
 
 ## Quick Start
 
+### Prerequisites
+
+#### Windows
+- Python 3.10+ installed and in your PATH
+- Node.js and npm installed
+
+#### macOS
+- Python 3.10+ installed
+- Install Homebrew (if not already installed):
+  ```bash
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  ```
+- Install Node.js and npm:
+  ```bash
+  brew install node
+  ```
+- **Apple Silicon (M1/M2/M3/M4) Notes**:
+  - The setup will automatically install a compatible PyTorch version
+  - If you encounter any PyTorch-related errors, you may need to manually install it:
+    ```bash
+    pip install torch
+    ```
+    Then continue with the regular setup.
+
 ### One-Click Setup (Recommended)
 
-### Windows
+#### Windows
 1. Run `setup.bat` to initialise the project (one-time setup)
    - Includes option for CUDA or CPU-only PyTorch installation
 2. Run `run.bat` to start both frontend and backend servers
 3. If you need to update dependencies later, use `install-deps.bat`
 
-### macOS/Linux
+#### macOS/Linux
 1. Make scripts executable: `chmod +x *.sh`
 2. Run `./setup.sh` to initialise the project (one-time setup)
    - Includes option for CUDA or CPU-only PyTorch installation
@@ -176,7 +200,7 @@ Both services can be configured in the `backend/.env` file. The system requires 
 
 ## Visual Demo
 
-![Assistant Interface](https://lex-au.github.io/Vocalis/Vocalis_Demo.png)
+![Assistant Interface](https://via.placeholder.com/800x450/0d0a1f/ffffff?text=Vocalis+Interface+Demo)
 
 ## Session Management
 
