@@ -987,7 +987,7 @@ const ChatInterface: React.FC = () => {
           <div className="bg-slate-900/95 shadow-xl border border-sky-300/20 p-6 rounded-xl backdrop-blur-md">
             <h3 className="text-lg font-medium text-sky-100 mb-4 flex items-center gap-2">
               <Eye className="w-5 h-5 text-sky-300" />
-              <span>Select an image to analyze</span>
+              <span>Select an image to analyse</span>
             </h3>
             
             <div 
@@ -1026,7 +1026,7 @@ const ChatInterface: React.FC = () => {
               <Loader2 className="w-8 h-8 text-sky-300 animate-spin" />
             </div>
             <h3 className="text-lg font-medium text-sky-100 mb-2">
-              Analyzing image...
+              Analysing image...
             </h3>
             <p className="text-sm text-slate-300">
               Processing your image with advanced AI vision capabilities

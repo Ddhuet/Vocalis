@@ -38,14 +38,23 @@ class VisionService:
             return True
         
         try:
+            import torch
+            
+            # Determine device (use CUDA if available)
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            logger.info(f"Using device for vision model: {self.device}")
+            
             logger.info(f"Loading vision model {self.model_name} (this may take a while on first run)...")
             
             # These calls will trigger the download if the model isn't cached locally
             self.processor = AutoProcessor.from_pretrained(self.model_name)
             self.model = AutoModelForVision2Seq.from_pretrained(self.model_name)
             
+            # Move model to GPU if available
+            self.model = self.model.to(self.device)
+            
             self.initialized = True
-            logger.info("Vision model loaded successfully")
+            logger.info(f"Vision model loaded successfully on {self.device}")
             return True
         except Exception as e:
             logger.error(f"Error loading vision model: {e}")
@@ -85,6 +94,9 @@ class VisionService:
             
             # Prepare inputs for the model with the correct token format
             inputs = self.processor(text=[formatted_prompt], images=[image], return_tensors="pt")
+            
+            # Move inputs to the same device as the model
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
             
             # Generate description
             with torch.no_grad():

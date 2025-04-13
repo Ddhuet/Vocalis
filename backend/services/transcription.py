@@ -25,10 +25,10 @@ class WhisperTranscriber:
     
     def __init__(
         self,
-        model_size: str = "large",
+        model_size: str = "base",
         device: str = None,
         compute_type: str = None,
-        beam_size: int = 5,
+        beam_size: int = 2,
         sample_rate: int = 44100
     ):
         """

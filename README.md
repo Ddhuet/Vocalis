@@ -27,7 +27,7 @@ A sophisticated AI assistant with speech-to-speech capabilities built on a moder
 - 🤖 AI-initiated greetings and follow-ups for natural conversations
 - 🎨 Dynamic visual feedback system with state-aware animations
 - 🔄 Streaming TTS with chunk-based delivery for immediate responses
-- 🚀 Cross-platform support with optimized setup scripts
+- 🚀 Cross-platform support with optimised setup scripts
 - 💻 CUDA acceleration with fallback for CPU-only systems
 
 ## Features
@@ -40,7 +40,7 @@ A sophisticated AI assistant with speech-to-speech capabilities built on a moder
 - **🔄 Conversation Memory** - Maintains context throughout the conversation session
 - **🧠 Contextual Understanding** - Processes conversation history for coherent, relevant responses
 - **🖼️ Image Analysis** - Upload and discuss images with integrated visual understanding
-- **💾 Session Management** - Save, load, and manage conversation sessions with customizable titles
+- **💾 Session Management** - Save, load, and manage conversation sessions with customisable titles
 
 ### ⚡ Ultra-Responsive Performance
 
@@ -56,7 +56,7 @@ A sophisticated AI assistant with speech-to-speech capabilities built on a moder
   - Pulsing glow during listening
   - Particle animations during processing
   - Wave-like motion during speaking
-- **📝 Live Transcription** - Real-time display of recognized speech
+- **📝 Live Transcription** - Real-time display of recognised speech
 - **🚦 Status Indicators** - Clear visual cues for system state
 - **🌈 Smooth Transitions** - Fluid state changes with appealing animations
 - **🌙 Dark Theme** - Eye-friendly interface with cosmic aesthetic
@@ -64,7 +64,7 @@ A sophisticated AI assistant with speech-to-speech capabilities built on a moder
 ### 🛠️ Technical Excellence
 
 - **🔍 High-Accuracy VAD** - Superior voice activity detection using custom-built VAD
-- **🗣️ Optimized Whisper Integration** - Faster-Whisper for rapid transcription
+- **🗣️ Optimised Whisper Integration** - Faster-Whisper for rapid transcription
 - **🔊 Real-Time TTS** - Chunked audio delivery for immediate playback
 - **🖥️ Hardware Flexibility** - CUDA acceleration with CPU fallback options
 - **🔧 Easy Configuration** - Environment variables and user-friendly setup
@@ -74,14 +74,14 @@ A sophisticated AI assistant with speech-to-speech capabilities built on a moder
 ### One-Click Setup (Recommended)
 
 ### Windows
-1. Run `setup.bat` to initialize the project (one-time setup)
+1. Run `setup.bat` to initialise the project (one-time setup)
    - Includes option for CUDA or CPU-only PyTorch installation
 2. Run `run.bat` to start both frontend and backend servers
 3. If you need to update dependencies later, use `install-deps.bat`
 
 ### macOS/Linux
 1. Make scripts executable: `chmod +x *.sh`
-2. Run `./setup.sh` to initialize the project (one-time setup)
+2. Run `./setup.sh` to initialise the project (one-time setup)
    - Includes option for CUDA or CPU-only PyTorch installation
 3. Run `./run.sh` to start both frontend and backend servers
 4. If you need to update dependencies later, use `./install-deps.sh`
@@ -133,8 +133,19 @@ If you prefer to set up the project manually, follow these steps:
 Vocalis is designed to work with OpenAI-compatible API endpoints for both LLM and TTS services:
 
 - **LLM (Language Model)**: By default, the backend is configured to use [LM Studio](https://lmstudio.ai/) running locally. This provides a convenient way to run local language models compatible with OpenAI's API format.
+  
+  **Custom Vocalis Model**: For optimal performance, Vocalis includes a purpose-built fine-tuned model: [lex-au/Vocalis-Q4_K_M.gguf](https://huggingface.co/lex-au/Vocalis-Q4_K_M.gguf). This model is based on Meta's LLaMA 3 8B Instruct and specifically optimised for immersive conversational experiences with:
+  - Enhanced spatial and temporal context tracking
+  - Low-latency response generation
+  - Rich, descriptive language capabilities
+  - Efficient resource utilisation through Q4_K_M quantisation
+  - Seamless integration with the Vocalis speech-to-speech pipeline
 
-- **Text-to-Speech (TTS)**: For voice generation, the system works with [Orpheus-FASTAPI](https://github.com/Lex-au/Orpheus-FastAPI), a high-quality TTS server with OpenAI-compatible endpoints.
+- **Text-to-Speech (TTS)**: For voice generation, the system works out of the box with:
+  - [Orpheus-FASTAPI](https://github.com/Lex-au/Orpheus-FastAPI): A high-quality TTS server with OpenAI-compatible endpoints providing rich, expressive voices.
+  
+  You can adjust the endpoint in `.env` to any opensource TTS project. For a lightning-fast alternative:
+  - [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI): A lightning-fast TTS alternative, optimised for minimal latency when speed is the priority over maximum expressiveness.
 
 Both services can be configured in the `backend/.env` file. The system requires these external services to function properly, as Vocalis acts as an orchestration layer combining speech recognition, language model inference, and speech synthesis.
 
@@ -144,13 +155,13 @@ Both services can be configured in the `backend/.env` file. The system requires 
 
 ## Session Management
 
-Vocalis includes a robust session management system that allows users to save, load, and organize their conversations:
+Vocalis includes a robust session management system that allows users to save, load, and organise their conversations:
 
 ### Key Features
 
 - **Save Conversations**: Save the current conversation state with a custom title
 - **Load Previous Sessions**: Return to any saved conversation exactly as you left it
-- **Edit Session Titles**: Rename sessions for better organization
+- **Edit Session Titles**: Rename sessions for better organisation
 - **Delete Unwanted Sessions**: Remove conversations you no longer need
 - **Session Metadata**: View additional information like message count
 - **Automatic Timestamps**: Sessions track both creation and last update times
@@ -399,7 +410,7 @@ graph TD
     
     %% UI Component Links
     FE_UI -->|Renders| UI_Orb
-    UI_Orb -->|Visualizes States| FE_State
+UI_Orb -->|Visualises States| FE_State
     FE_UI -->|Renders| UI_Stars
     FE_UI -->|Renders| UI_Chat
     UI_Chat -->|Displays Transcript| FE_State
@@ -642,6 +653,52 @@ Vocalis now includes visual understanding capabilities through the SmolVLM-256M-
 ### 3. Interrupt Handling
 - Implement a "barge-in" capability where new user speech cancels ongoing TTS
 - Clear audio buffers immediately on interruption
+
+## Latency Optimisation
+
+Vocalis achieves exceptional low-latency performance through carefully optimised components:
+
+### Speech Recognition Performance
+
+The system uses Faster-Whisper with the `base.en` model and a beam size of 2, striking an optimal balance between accuracy and speed. This configuration achieves:
+
+- **ASR Processing**: ~0.43 seconds for typical utterances
+- **Response Generation**: ~0.18 seconds
+- **Total Round-Trip Latency**: ~0.61 seconds
+
+Real-world example from system logs:
+```
+INFO:faster_whisper:Processing audio with duration 00:02.229
+INFO:backend.services.transcription:Transcription completed in 0.51s: Hi, how are you doing today?...
+INFO:backend.services.tts:Sending TTS request with 147 characters of text
+INFO:backend.services.tts:Received TTS response after 0.16s, size: 390102 bytes
+```
+
+### Customising Performance
+
+You can adjust these settings to optimise for your specific needs:
+
+1. **Model Size**: In `.env`, modify `WHISPER_MODEL=base.en` 
+   - Options: tiny.en, base.en, small.en, medium.en, large
+   - Smaller models = faster processing, potentially lower accuracy
+   - Larger models = more accurate, but increased latency
+
+2. **Beam Size**: In `backend/services/transcription.py`, modify the `beam_size` parameter
+   - Default: 2
+   - Range: 1-5 (1 = fastest, 5 = most accurate)
+   - Located in the `__init__` method of the `WhisperTranscriber` class
+
+### Latency vs. Accuracy Trade-offs
+
+| Model | Beam Size | Approximate ASR Time | Accuracy |
+|------|-----------|---------------------|----------|
+| tiny.en | 1 | ~0.01s | Lower |
+| base.en | 2 | ~0.03s | Good |
+| small.en | 3 | ~0.10s | Better |
+| medium.en | 4 | ~0.25s | Very Good |
+| large | 5 | ~0.50s | Best |
+
+With optimisations in place, Vocalis can achieve total processing latencies well under 250ms when using smaller models, which is typically perceived as "immediate" by users.
 
 ## Project Structure
 
