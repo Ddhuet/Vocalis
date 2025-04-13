@@ -176,7 +176,7 @@ Both services can be configured in the `backend/.env` file. The system requires 
 
 ## Visual Demo
 
-![Assistant Interface](https://lex-au.github.io/Vocalis/Vocalis_Visual_demo.gif)
+![Assistant Interface](https://lex-au.github.io/Vocalis/Vocalis_Demo.png)
 
 ## Session Management
 
