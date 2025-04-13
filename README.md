@@ -1,4 +1,4 @@
-![Vocalis - Speech-to-Speech AI Assistant](https://via.placeholder.com/1200x300/1a1025/ffffff?text=Vocalis:+Speech-to-Speech+AI+Assistant)
+![Vocalis - Speech-to-Speech AI Assistant](https://lex-au.github.io/Vocalis/Vocalis_Header.png)
 
 # Vocalis
 
@@ -200,7 +200,7 @@ Both services can be configured in the `backend/.env` file. The system requires 
 
 ## Visual Demo
 
-![Assistant Interface](https://via.placeholder.com/800x450/0d0a1f/ffffff?text=Vocalis+Interface+Demo)
+![Assistant Interface](https://lex-au.github.io/Vocalis/Vocalis_Demo.png)
 
 ## Session Management
 
