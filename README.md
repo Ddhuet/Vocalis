@@ -128,6 +128,31 @@ If you prefer to set up the project manually, follow these steps:
    npm run dev
    ```
 
+### Personalising Vocalis
+
+After launching Vocalis, you can customise your experience through the sidebar:
+
+1. Click the sidebar icon to open the navigation panel
+2. Under the "Settings" tab, click "Preferences" to access personalisation options
+
+The preferences modal offers several ways to tailor Vocalis to your needs:
+
+#### User Profile
+- **Your Name**: Enter your name to personalise greetings and make conversations more natural
+- This helps Vocalis address you properly during interactions
+
+#### System Prompt
+- Modify the AI's behaviour by editing the system prompt
+- The default prompt is optimised for natural voice interaction, but you can customise it for specific use cases
+- Use the "Restore Default" button to revert to the original prompt if needed
+
+#### Vision Capabilities
+- Toggle vision capabilities on/off using the switch at the bottom of the preferences panel
+- When enabled, Vocalis can analyse images shared during conversations
+- This feature allows for rich multi-modal interactions where you can discuss visual content
+
+These settings are saved automatically and persist between sessions, ensuring a consistent experience tailored to your preferences.
+
 ## External Services
 
 Vocalis is designed to work with OpenAI-compatible API endpoints for both LLM and TTS services:
