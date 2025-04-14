@@ -10,6 +10,10 @@
 
 A sophisticated AI assistant with speech-to-speech capabilities built on a modern React frontend with a FastAPI backend. Vocalis provides a responsive, low-latency conversational experience with advanced visual feedback.
 
+## Video Demonstration of Setup and Usage
+
+[![Watch the video](https://lex-au.github.io/Vocalis/Demonstration_Video.png)](https://www.youtube.com/watch?v=2slWwsHTNIA)
+
 ## Changelog
 
 **v1.5.0** (Vision Update) - April 12, 2025
