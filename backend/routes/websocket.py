@@ -976,6 +976,9 @@ class WebSocketManager:
             websocket: The WebSocket connection
         """
         try:
+            # Reload system prompt from file to ensure we have the latest version
+            self.system_prompt = self._load_system_prompt()
+            
             await websocket.send_json({
                 "type": MessageType.SYSTEM_PROMPT,
                 "prompt": self.system_prompt,

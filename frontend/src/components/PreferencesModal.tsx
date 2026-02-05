@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import { User, Sparkles, Eye, Mic } from 'lucide-react';
 import websocketService, { MessageType } from '../services/websocket';
 
@@ -12,7 +13,7 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
   const [userName, setUserName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'profile' | 'system' | 'voice'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'system' | 'voice' | 'vision'>('profile');
   const [isVisionEnabled, setIsVisionEnabled] = useState(false);
   const [isAiFollowupsEnabled, setIsAiFollowupsEnabled] = useState(false);
 
@@ -305,9 +306,9 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
 
   if (!isOpen && !isVisible) return null;
 
-  return (
+  return ReactDOM.createPortal(
     <div className={`fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm transition-opacity duration-300 ease-in-out ${isOpen ? 'opacity-100 bg-black/50' : 'opacity-0 pointer-events-none'}`}>
-      <div className={`bg-slate-900 border border-slate-700 rounded-lg w-full max-w-2xl max-h-[90vh] flex flex-col shadow-xl transition-all duration-300 ease-in-out ${isOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
+      <div className={`bg-slate-900 border border-slate-700 rounded-lg w-full max-w-3xl max-h-[90vh] flex flex-col shadow-xl transition-all duration-300 ease-in-out ${isOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
         {/* Header */}
         <div className="flex items-center p-4 border-b border-slate-700">
           <h2 className="text-lg font-semibold text-slate-100">Preferences</h2>
@@ -345,6 +346,16 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
             <Mic className="w-4 h-4" />
             <span>Voice Settings</span>
           </button>
+          <button
+            className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${activeTab === 'vision'
+              ? 'border-emerald-500 text-emerald-400'
+              : 'border-transparent text-slate-400 hover:text-slate-300'
+              }`}
+            onClick={() => setActiveTab('vision')}
+          >
+            <Eye className="w-4 h-4" />
+            <span>Vision</span>
+          </button>
         </div>
 
         {/* Content */}
@@ -353,7 +364,9 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
             ? renderProfileTab()
             : activeTab === 'system'
               ? renderSystemTab()
-              : renderVoiceTab()}
+              : activeTab === 'voice'
+                ? renderVoiceTab()
+                : renderVisionTab()}
 
           {saveError && (
             <div className="text-red-400 text-sm p-2 bg-red-900/20 border border-red-900/30 rounded">
@@ -362,33 +375,7 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
           )}
         </div>
 
-        {/* Vision Settings Section */}
-        <div className="px-4 py-3 border-t border-slate-700 bg-slate-800/30">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Eye className="w-4 h-4 text-indigo-400" />
-              <span className="text-sm font-medium text-slate-300">Vision</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isVisionEnabled ? 'bg-indigo-600' : 'bg-slate-700'
-                  }`}
-                onClick={() => setIsVisionEnabled(!isVisionEnabled)}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isVisionEnabled ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                />
-              </div>
-              <span className="text-xs text-slate-400">
-                {isVisionEnabled ? 'Enabled' : 'Disabled'}
-              </span>
-            </div>
-          </div>
-          <p className="text-xs text-slate-400 mt-1">
-            When enabled, Vocalis can analyze images and provide visual context (coming soon).
-          </p>
-        </div>
+
 
         {/* Footer */}
         <div className="p-4 border-t border-slate-700 flex justify-end space-x-2">
@@ -410,7 +397,8 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
