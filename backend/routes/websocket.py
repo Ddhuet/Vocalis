@@ -58,6 +58,10 @@ class MessageType:
     VISION_FILE_UPLOAD_RESULT = "vision_file_upload_result"
     VISION_PROCESSING = "vision_processing"
     VISION_READY = "vision_ready"
+    
+    # Voice settings message types
+    VOICE_SETTINGS = "voice_settings"
+    VOICE_SETTINGS_UPDATED = "voice_settings_updated"
 
 class WebSocketManager:
     """
@@ -94,11 +98,13 @@ class WebSocketManager:
         self.prompt_path = os.path.join("prompts", "system_prompt.md")
         self.profile_path = os.path.join("prompts", "user_profile.json")
         self.vision_settings_path = os.path.join("prompts", "vision_settings.json")
+        self.voice_settings_path = os.path.join("prompts", "voice_settings.json")
         
-        # Load system prompt, user profile, and vision settings
+        # Load system prompt, user profile, and settings
         self.system_prompt = self._load_system_prompt()
         self.user_profile = self._load_user_profile()
         self.vision_settings = self._load_vision_settings()
+        self.voice_settings = self._load_voice_settings()
         
         # Initialize conversation storage
         self.conversation_storage = ConversationStorage()
@@ -120,10 +126,6 @@ class WebSocketManager:
             "If you don't know something, admit it rather than making up an answer"
             "\n\n"
             "Through the webapp, you can receive and understand photographs and pictures."
-            "\n\n"
-            "When the user sends a message like '[silent]', '[no response]', or '[still waiting]', it means they've gone quiet or haven't responded."
-            "When you see these signals, continue the conversation naturally based on the previous topic and context."
-            "Stay on topic, be helpful, and don't mention that they were silent - just carry on the conversation as if you're gently following up."
         )
         
         try:
@@ -585,6 +587,11 @@ class WebSocketManager:
             tier: Current follow-up tier (0-2)
         """
         try:
+            # Check if AI followups are enabled
+            if not self.voice_settings.get("ai_followups_enabled", False):
+                logger.info("Silent follow-up requested but AI followups are disabled")
+                return
+            
             # Save full conversation history
             full_history = self.llm_client.conversation_history.copy()
             
@@ -610,8 +617,9 @@ class WebSocketManager:
             user_input = "[silent]" if tier == 0 else "[no response]" if tier == 1 else "[still waiting]"
             
             # Generate the follow-up with the silence indicator as user input
+            # Use the effective system prompt which includes silence handling instructions
             logger.info(f"Generating contextual follow-up (tier {tier+1})")
-            llm_response = self.llm_client.get_response(user_input, self.system_prompt, add_to_history=False, temperature=0.7)
+            llm_response = self.llm_client.get_response(user_input, self._get_effective_system_prompt(), add_to_history=False, temperature=0.7)
             
             # Restore original conversation history
             self.llm_client.conversation_history = full_history
@@ -851,6 +859,15 @@ class WebSocketManager:
                 # Update vision settings
                 enabled = message.get("enabled", False)
                 await self._handle_update_vision_settings(websocket, enabled)
+            
+            elif message_type == "get_voice_settings":
+                # Send current voice settings to client
+                await self._handle_get_voice_settings(websocket)
+                
+            elif message_type == "update_voice_settings":
+                # Update voice settings
+                ai_followups_enabled = message.get("ai_followups_enabled", False)
+                await self._handle_update_voice_settings(websocket, ai_followups_enabled)
                 
             # Session management handlers
             elif message_type == MessageType.SAVE_SESSION:
@@ -1061,6 +1078,124 @@ class WebSocketManager:
         except Exception as e:
             logger.error(f"Error updating vision settings: {e}")
             await self._send_error(websocket, f"Error updating vision settings: {str(e)}")
+    
+    def _load_voice_settings(self) -> Dict[str, Any]:
+        """
+        Load voice settings from file or create a default one if it doesn't exist.
+        
+        Returns:
+            Dict[str, Any]: The voice settings
+        """
+        default_settings = {
+            "ai_followups_enabled": False
+        }
+        
+        try:
+            # Create directory if it doesn't exist
+            os.makedirs(os.path.dirname(self.voice_settings_path), exist_ok=True)
+            
+            # Read from file if it exists
+            if os.path.exists(self.voice_settings_path):
+                with open(self.voice_settings_path, "r") as f:
+                    settings = json.load(f)
+                    if settings:  # Only use if not empty
+                        return settings
+            
+            # If file doesn't exist or is empty, write default settings
+            with open(self.voice_settings_path, "w") as f:
+                json.dump(default_settings, f, indent=2)
+            
+            return default_settings
+            
+        except Exception as e:
+            logger.error(f"Error loading voice settings: {e}")
+            return default_settings
+    
+    def _save_voice_settings(self) -> bool:
+        """
+        Save voice settings to file.
+        
+        Returns:
+            bool: Whether the save was successful
+        """
+        try:
+            os.makedirs(os.path.dirname(self.voice_settings_path), exist_ok=True)
+            with open(self.voice_settings_path, "w") as f:
+                json.dump(self.voice_settings, f, indent=2)
+            return True
+        except Exception as e:
+            logger.error(f"Error saving voice settings: {e}")
+            return False
+    
+    async def _handle_get_voice_settings(self, websocket: WebSocket):
+        """
+        Send the current voice settings to the client.
+        
+        Args:
+            websocket: The WebSocket connection
+        """
+        try:
+            await websocket.send_json({
+                "type": MessageType.VOICE_SETTINGS,
+                "ai_followups_enabled": self.voice_settings.get("ai_followups_enabled", False),
+                "timestamp": datetime.now().isoformat()
+            })
+            logger.info("Sent voice settings to client")
+        except Exception as e:
+            logger.error(f"Error sending voice settings: {e}")
+            await self._send_error(websocket, f"Error sending voice settings: {str(e)}")
+    
+    async def _handle_update_voice_settings(self, websocket: WebSocket, ai_followups_enabled: bool):
+        """
+        Update the voice settings.
+        
+        Args:
+            websocket: The WebSocket connection
+            ai_followups_enabled: Whether AI-initiated followups are enabled
+        """
+        try:
+            # Update in memory
+            self.voice_settings["ai_followups_enabled"] = ai_followups_enabled
+            
+            # Save to file
+            success = self._save_voice_settings()
+            
+            # Send confirmation
+            await websocket.send_json({
+                "type": MessageType.VOICE_SETTINGS_UPDATED,
+                "success": success,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            logger.info(f"Updated voice settings: ai_followups_enabled={ai_followups_enabled}")
+        except Exception as e:
+            logger.error(f"Error updating voice settings: {e}")
+            await self._send_error(websocket, f"Error updating voice settings: {str(e)}")
+    
+    def _get_effective_system_prompt(self) -> str:
+        """
+        Get the effective system prompt with optional silence handling instructions.
+        
+        If AI followups are enabled, appends the silence handling instructions
+        to the base system prompt.
+        
+        Returns:
+            str: The effective system prompt
+        """
+        base_prompt = self.system_prompt
+        
+        # If AI followups are enabled, add the silence handling instructions
+        if self.voice_settings.get("ai_followups_enabled", False):
+            silence_instructions = (
+                "\n\n"
+                "When the user sends a message like '[silent]', '[no response]', or '[still waiting]', "
+                "it means they've gone quiet or haven't responded."
+                "When you see these signals, continue the conversation naturally based on the previous topic and context."
+                "Stay on topic, be helpful, and don't mention that they were silent - just carry on the conversation as if you're gently following up."
+            )
+            return base_prompt + silence_instructions
+        
+        return base_prompt
     
     async def _handle_update_system_prompt(self, websocket: WebSocket, new_prompt: str):
         """

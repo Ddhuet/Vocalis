@@ -24,7 +24,7 @@ export enum MessageType {
   USER_PROFILE_UPDATED = "user_profile_updated",
   GREETING = "greeting",
   SILENT_FOLLOWUP = "silent_followup",
-  
+
   // Session storage message types
   SAVE_SESSION = "save_session",
   SAVE_SESSION_RESULT = "save_session_result",
@@ -34,16 +34,20 @@ export enum MessageType {
   LIST_SESSIONS_RESULT = "list_sessions_result",
   DELETE_SESSION = "delete_session",
   DELETE_SESSION_RESULT = "delete_session_result",
-  
+
   // Vision feature message types
   VISION_SETTINGS = "vision_settings",
   VISION_SETTINGS_UPDATED = "vision_settings_updated",
-  
+
   // Vision processing message types
   VISION_FILE_UPLOAD = "vision_file_upload",
-  VISION_FILE_UPLOAD_RESULT = "vision_file_upload_result", 
+  VISION_FILE_UPLOAD_RESULT = "vision_file_upload_result",
   VISION_PROCESSING = "vision_processing",
-  VISION_READY = "vision_ready"
+  VISION_READY = "vision_ready",
+
+  // Voice settings message types
+  VOICE_SETTINGS = "voice_settings",
+  VOICE_SETTINGS_UPDATED = "voice_settings_updated"
 }
 
 // Session interface
@@ -62,7 +66,7 @@ export interface Session {
 }
 
 // Event types
-type WebSocketEventType = 
+type WebSocketEventType =
   | 'open'
   | 'close'
   | 'error'
@@ -88,7 +92,9 @@ type WebSocketEventType =
   | 'vision_settings_updated'
   | 'vision_file_upload_result'
   | 'vision_processing'
-  | 'vision_ready';
+  | 'vision_ready'
+  | 'voice_settings'
+  | 'voice_settings_updated';
 
 // WebSocket state
 export enum ConnectionState {
@@ -115,12 +121,12 @@ export class WebSocketService {
   private listeners: EventListener[] = [];
   private pingInterval: number | null = null;
   private connectionState: ConnectionState = ConnectionState.DISCONNECTED;
-  
+
   // Track states that should prevent interrupt signals
   private isInGreetingFlow: boolean = false;
 
   constructor(
-    url: string = 'ws://localhost:8000/ws', 
+    url: string = 'ws://localhost:8000/ws',
     autoReconnect: boolean = true,
     reconnectInterval: number = 3000,
     maxReconnectAttempts: number = 5
@@ -142,10 +148,10 @@ export class WebSocketService {
     }
 
     this.setConnectionState(ConnectionState.CONNECTING);
-    
+
     try {
       this.socket = new WebSocket(this.url);
-      
+
       this.socket.onopen = this.onOpen.bind(this);
       this.socket.onclose = this.onClose.bind(this);
       this.socket.onerror = this.onError.bind(this);
@@ -166,12 +172,12 @@ export class WebSocketService {
       this.socket.close();
       this.socket = null;
     }
-    
+
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
     }
-    
+
     this.setConnectionState(ConnectionState.DISCONNECTED);
   }
 
@@ -190,7 +196,7 @@ export class WebSocketService {
         ...data,
         timestamp: new Date().toISOString()
       };
-      
+
       this.socket.send(JSON.stringify(message));
       return true;
     } catch (error) {
@@ -205,18 +211,18 @@ export class WebSocketService {
   public sendAudio(audioData: Float32Array | ArrayBuffer): boolean {
     // Convert to base64 if Float32Array
     let base64Data: string;
-    
+
     if (audioData instanceof Float32Array) {
       // Create a buffer from the Float32Array
       const buffer = new ArrayBuffer(audioData.length * 4); // 4 bytes per float
       const view = new Float32Array(buffer);
       view.set(audioData);
-      
+
       base64Data = this.arrayBufferToBase64(buffer);
     } else {
       base64Data = this.arrayBufferToBase64(audioData);
     }
-    
+
     return this.send(MessageType.AUDIO, {
       audio_data: base64Data
     });
@@ -232,11 +238,11 @@ export class WebSocketService {
       console.log('Interrupt prevented: still in greeting flow');
       return false;
     }
-    
+
     console.log('Sending interrupt signal to server');
     return this.send(MessageType.INTERRUPT);
   }
-  
+
   /**
    * Set whether we're in the initial greeting flow
    * This prevents interrupts during initial greeting and playback
@@ -252,7 +258,7 @@ export class WebSocketService {
   public clearHistory(): boolean {
     return this.send(MessageType.CLEAR_HISTORY);
   }
-  
+
   /**
    * Request the current system prompt
    */
@@ -260,7 +266,7 @@ export class WebSocketService {
     // Send explicit string type expected by backend
     return this.send("get_system_prompt" as any);
   }
-  
+
   /**
    * Update the system prompt
    */
@@ -270,7 +276,7 @@ export class WebSocketService {
       prompt
     });
   }
-  
+
   /**
    * Request the current user profile
    */
@@ -278,7 +284,7 @@ export class WebSocketService {
     // Send explicit string type expected by backend
     return this.send("get_user_profile" as any);
   }
-  
+
   /**
    * Update the user profile
    */
@@ -288,7 +294,7 @@ export class WebSocketService {
       name
     });
   }
-  
+
   /**
    * Request the current vision settings
    */
@@ -296,7 +302,7 @@ export class WebSocketService {
     // Send explicit string type expected by backend
     return this.send("get_vision_settings" as any);
   }
-  
+
   /**
    * Update the vision settings
    * 
@@ -308,7 +314,27 @@ export class WebSocketService {
       enabled
     });
   }
-  
+
+  /**
+   * Request the current voice settings
+   */
+  public getVoiceSettings(): boolean {
+    // Send explicit string type expected by backend
+    return this.send("get_voice_settings" as any);
+  }
+
+  /**
+   * Update the voice settings
+   * 
+   * @param aiFollowupsEnabled Whether AI-initiated followups are enabled
+   */
+  public updateVoiceSettings(aiFollowupsEnabled: boolean): boolean {
+    // Send explicit string type expected by backend
+    return this.send("update_voice_settings" as any, {
+      ai_followups_enabled: aiFollowupsEnabled
+    });
+  }
+
   /**
    * Send an image for vision processing
    * 
@@ -319,7 +345,7 @@ export class WebSocketService {
       image_data: imageData
     });
   }
-  
+
   /**
    * Send a greeting request (for conversation starters)
    */
@@ -328,7 +354,7 @@ export class WebSocketService {
     this.setGreetingFlowState(true);
     return this.send(MessageType.GREETING);
   }
-  
+
   /**
    * Send a silent follow-up request when user is inactive
    * 
@@ -363,7 +389,7 @@ export class WebSocketService {
       console.error('Session ID is required to load a session');
       return false;
     }
-    
+
     return this.send(MessageType.LOAD_SESSION, {
       session_id: sessionId
     });
@@ -389,7 +415,7 @@ export class WebSocketService {
       console.error('Session ID is required to delete a session');
       return false;
     }
-    
+
     return this.send(MessageType.DELETE_SESSION, {
       session_id: sessionId
     });
@@ -425,14 +451,14 @@ export class WebSocketService {
     console.log('WebSocket connected');
     this.setConnectionState(ConnectionState.CONNECTED);
     this.reconnectAttempts = 0;
-    
+
     // Set up ping interval to keep connection alive
     this.pingInterval = setInterval(() => {
       if (this.socket && this.socket.readyState === WebSocket.OPEN) {
         this.send(MessageType.PING);
       }
     }, 30000); // Send ping every 30 seconds
-    
+
     // Notify listeners
     this.notifyListeners('open', { event });
   }
@@ -443,15 +469,15 @@ export class WebSocketService {
   private onClose(event: CloseEvent): void {
     console.log('WebSocket disconnected');
     this.setConnectionState(ConnectionState.DISCONNECTED);
-    
+
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
     }
-    
+
     // Notify listeners
     this.notifyListeners('close', { event });
-    
+
     // Attempt to reconnect if enabled
     this.handleReconnect();
   }
@@ -462,7 +488,7 @@ export class WebSocketService {
   private onError(event: Event): void {
     console.error('WebSocket error:', event);
     this.setConnectionState(ConnectionState.ERROR);
-    
+
     // Notify listeners
     this.notifyListeners('error', { event });
   }
@@ -474,7 +500,7 @@ export class WebSocketService {
     try {
       const message = JSON.parse(event.data);
       const type = message.type as WebSocketEventType;
-      
+
       // Acknowledge pings but DON'T send pong responses
       // Backend doesn't handle pong messages well
       if (message.type === 'ping') {
@@ -482,13 +508,13 @@ export class WebSocketService {
         console.debug('Received ping from server');
         return;
       }
-      
+
       // Silently ignore pong messages as they're just connection keepalive responses
       if (message.type === 'pong') {
         console.debug('Received pong response');
         return;
       }
-      
+
       // Notify listeners
       this.notifyListeners(type, message);
     } catch (error) {
@@ -518,11 +544,11 @@ export class WebSocketService {
     if (!this.autoReconnect || this.reconnectAttempts >= this.maxReconnectAttempts) {
       return;
     }
-    
+
     this.reconnectAttempts++;
-    
+
     console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
-    
+
     setTimeout(() => {
       this.connect();
     }, this.reconnectInterval);
@@ -542,11 +568,11 @@ export class WebSocketService {
     const binary = [];
     const bytes = new Uint8Array(buffer);
     const len = bytes.byteLength;
-    
+
     for (let i = 0; i < len; i++) {
       binary.push(String.fromCharCode(bytes[i]));
     }
-    
+
     return btoa(binary.join(''));
   }
 
@@ -557,11 +583,11 @@ export class WebSocketService {
     const binaryString = atob(base64);
     const len = binaryString.length;
     const bytes = new Uint8Array(len);
-    
+
     for (let i = 0; i < len; i++) {
       bytes[i] = binaryString.charCodeAt(i);
     }
-    
+
     return bytes.buffer;
   }
 }

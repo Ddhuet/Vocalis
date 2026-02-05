@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Sparkles, Eye } from 'lucide-react';
+import { User, Sparkles, Eye, Mic } from 'lucide-react';
 import websocketService, { MessageType } from '../services/websocket';
 
 interface PreferencesModalProps {
@@ -12,66 +12,76 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
   const [userName, setUserName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'profile' | 'system'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'system' | 'voice'>('profile');
   const [isVisionEnabled, setIsVisionEnabled] = useState(false);
-  
+  const [isAiFollowupsEnabled, setIsAiFollowupsEnabled] = useState(false);
+
   useEffect(() => {
     if (isOpen) {
       // Reset state when modal opens
       setSaveError(null);
-      
+
       // Fetch current system prompt, user profile, and vision settings
       const handleSystemPrompt = (data: any) => {
         if (data && data.prompt) {
           setSystemPrompt(data.prompt);
         }
       };
-      
+
       const handleUserProfile = (data: any) => {
         if (data && data.name !== undefined) {
           setUserName(data.name);
         }
       };
-      
+
       const handleVisionSettings = (data: any) => {
         if (data && data.enabled !== undefined) {
           setIsVisionEnabled(data.enabled);
         }
       };
-      
+
+      const handleVoiceSettings = (data: any) => {
+        if (data && data.ai_followups_enabled !== undefined) {
+          setIsAiFollowupsEnabled(data.ai_followups_enabled);
+        }
+      };
+
       // Listen for responses
       websocketService.addEventListener(MessageType.SYSTEM_PROMPT, handleSystemPrompt);
       websocketService.addEventListener(MessageType.USER_PROFILE, handleUserProfile);
       websocketService.addEventListener(MessageType.VISION_SETTINGS as any, handleVisionSettings);
-      
+      websocketService.addEventListener(MessageType.VOICE_SETTINGS as any, handleVoiceSettings);
+
       // Request data
       websocketService.getSystemPrompt();
       websocketService.getUserProfile();
       websocketService.getVisionSettings();
-      
+      websocketService.getVoiceSettings();
+
       console.log('Requested preferences data');
-      
+
       return () => {
         websocketService.removeEventListener(MessageType.SYSTEM_PROMPT, handleSystemPrompt);
         websocketService.removeEventListener(MessageType.USER_PROFILE, handleUserProfile);
         websocketService.removeEventListener(MessageType.VISION_SETTINGS as any, handleVisionSettings);
+        websocketService.removeEventListener(MessageType.VOICE_SETTINGS as any, handleVoiceSettings);
       };
     }
   }, [isOpen]);
-  
+
   // Listen for update confirmations
   useEffect(() => {
     let updateCount = 0;
-    const expectedUpdateCount = 3; // Always expect 3 updates: system prompt, user profile, and vision
+    const expectedUpdateCount = 4; // Always expect 4 updates: system prompt, user profile, vision, and voice
     let success = true;
-    
+
     const handlePromptUpdated = (data: any) => {
       updateCount++;
       if (!(data && data.success)) {
         success = false;
         setSaveError('Failed to update system prompt. Please try again.');
       }
-      
+
       if (updateCount >= expectedUpdateCount) {
         setIsSaving(false);
         if (success) {
@@ -80,14 +90,14 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
         }
       }
     };
-    
+
     const handleProfileUpdated = (data: any) => {
       updateCount++;
       if (!(data && data.success)) {
         success = false;
         setSaveError('Failed to update user profile. Please try again.');
       }
-      
+
       if (updateCount >= expectedUpdateCount) {
         setIsSaving(false);
         if (success) {
@@ -96,14 +106,14 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
         }
       }
     };
-    
+
     const handleVisionSettingsUpdated = (data: any) => {
       updateCount++;
       if (!(data && data.success)) {
         success = false;
         setSaveError('Failed to update vision settings. Please try again.');
       }
-      
+
       if (updateCount >= expectedUpdateCount) {
         setIsSaving(false);
         if (success) {
@@ -112,36 +122,55 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
         }
       }
     };
-    
+
+    const handleVoiceSettingsUpdated = (data: any) => {
+      updateCount++;
+      if (!(data && data.success)) {
+        success = false;
+        setSaveError('Failed to update voice settings. Please try again.');
+      }
+
+      if (updateCount >= expectedUpdateCount) {
+        setIsSaving(false);
+        if (success) {
+          // Close modal only if all updates succeeded
+          onClose();
+        }
+      }
+    };
+
     websocketService.addEventListener(MessageType.SYSTEM_PROMPT_UPDATED, handlePromptUpdated);
     websocketService.addEventListener(MessageType.USER_PROFILE_UPDATED, handleProfileUpdated);
     websocketService.addEventListener(MessageType.VISION_SETTINGS_UPDATED as any, handleVisionSettingsUpdated);
-    
+    websocketService.addEventListener(MessageType.VOICE_SETTINGS_UPDATED as any, handleVoiceSettingsUpdated);
+
     return () => {
       websocketService.removeEventListener(MessageType.SYSTEM_PROMPT_UPDATED, handlePromptUpdated);
       websocketService.removeEventListener(MessageType.USER_PROFILE_UPDATED, handleProfileUpdated);
       websocketService.removeEventListener(MessageType.VISION_SETTINGS_UPDATED as any, handleVisionSettingsUpdated);
+      websocketService.removeEventListener(MessageType.VOICE_SETTINGS_UPDATED as any, handleVoiceSettingsUpdated);
     };
   }, [onClose, activeTab]);
-  
+
   const handleSave = () => {
     // Check if system prompt is empty when in system tab
     if (activeTab === 'system' && !systemPrompt.trim()) {
       setSaveError('System prompt cannot be empty');
       return;
     }
-    
+
     setIsSaving(true);
     setSaveError(null);
-    
+
     // Always update all settings
     websocketService.updateSystemPrompt(systemPrompt);
     websocketService.updateUserProfile(userName);
     websocketService.updateVisionSettings(isVisionEnabled);
+    websocketService.updateVoiceSettings(isAiFollowupsEnabled);
   };
-  
+
   // backticks, in my code, in the year of our lord, 2025? no.
-  const handleRestore = () => { 
+  const handleRestore = () => {
     setSystemPrompt(
       "You are a helpful, friendly, and concise voice assistant. " +
       "Respond to user queries in a natural, conversational manner. " +
@@ -149,30 +178,23 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
       "When providing information, focus on the most relevant details. " +
       "If you don't know something, admit it rather than making up an answer." +
       "\n\n" +
-      "Through the webapp, you can receive and understand photographs and pictures." +
-      "\n\n" +
-      "When the user sends a message like '[silent]', '[no response]', or '[still waiting]', it means they've gone quiet or haven't responded." +
-      "When you see these signals, continue the conversation naturally based on the previous topic and context." +
-      "Stay on topic, be helpful, and don't mention that they were silent - just carry on the conversation as if you're gently following up."
+      "Through the webapp, you can receive and understand photographs and pictures."
     );
   };
-  
-  // Tab rendering helpers
+
   const renderVisionTab = () => (
     <div className="space-y-4">
       <div className="space-y-2">
         <label className="text-sm font-medium text-slate-300">Vision</label>
         <div className="flex items-center">
           <div
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              isVisionEnabled ? 'bg-emerald-600' : 'bg-slate-700'
-            }`}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isVisionEnabled ? 'bg-emerald-600' : 'bg-slate-700'
+              }`}
             onClick={() => setIsVisionEnabled(!isVisionEnabled)}
           >
             <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                isVisionEnabled ? 'translate-x-6' : 'translate-x-1'
-              }`}
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isVisionEnabled ? 'translate-x-6' : 'translate-x-1'
+                }`}
             />
           </div>
           <span className="ml-3 text-sm text-slate-300">
@@ -191,7 +213,42 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
       </div>
     </div>
   );
-  
+
+  const renderVoiceTab = () => (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <label className="text-sm font-medium text-slate-300">AI Initiated Followups</label>
+        <div className="flex items-center">
+          <div
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isAiFollowupsEnabled ? 'bg-amber-600' : 'bg-slate-700'
+              }`}
+            onClick={() => setIsAiFollowupsEnabled(!isAiFollowupsEnabled)}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isAiFollowupsEnabled ? 'translate-x-6' : 'translate-x-1'
+                }`}
+            />
+          </div>
+          <span className="ml-3 text-sm text-slate-300">
+            {isAiFollowupsEnabled ? 'Enabled' : 'Disabled'}
+          </span>
+        </div>
+        <p className="text-xs text-slate-400">
+          When enabled, Vocalis will occasionally speak on its own if you go silent during a conversation,
+          attempting to continue the discussion or check in with you.
+        </p>
+        {isAiFollowupsEnabled && (
+          <div className="mt-4 p-3 bg-amber-900/20 border border-amber-800/30 rounded-lg">
+            <p className="text-xs text-amber-300">
+              <strong>Note:</strong> The AI will send follow-up messages if you don't respond within a few seconds.
+              This can make conversations feel more natural but may be distracting in some situations.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
   const renderProfileTab = () => (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -211,7 +268,7 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
       </div>
     </div>
   );
-  
+
   const renderSystemTab = () => (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
@@ -234,10 +291,10 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
       </p>
     </div>
   );
-  
+
   // Handle animation state
   const [isVisible, setIsVisible] = useState(false);
-  
+
   useEffect(() => {
     if (isOpen) {
       setIsVisible(true);
@@ -245,9 +302,9 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
       setTimeout(() => setIsVisible(false), 300); // Match animation duration
     }
   }, [isOpen]);
-  
+
   if (!isOpen && !isVisible) return null;
-  
+
   return (
     <div className={`fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm transition-opacity duration-300 ease-in-out ${isOpen ? 'opacity-100 bg-black/50' : 'opacity-0 pointer-events-none'}`}>
       <div className={`bg-slate-900 border border-slate-700 rounded-lg w-full max-w-2xl max-h-[90vh] flex flex-col shadow-xl transition-all duration-300 ease-in-out ${isOpen ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
@@ -255,46 +312,56 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
         <div className="flex items-center p-4 border-b border-slate-700">
           <h2 className="text-lg font-semibold text-slate-100">Preferences</h2>
         </div>
-        
+
         {/* Tabs */}
         <div className="flex border-b border-slate-700">
           <button
-            className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
-              activeTab === 'profile'
-                ? 'border-emerald-500 text-emerald-400'
-                : 'border-transparent text-slate-400 hover:text-slate-300'
-            }`}
+            className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${activeTab === 'profile'
+              ? 'border-emerald-500 text-emerald-400'
+              : 'border-transparent text-slate-400 hover:text-slate-300'
+              }`}
             onClick={() => setActiveTab('profile')}
           >
             <User className="w-4 h-4" />
             <span>User Profile</span>
           </button>
           <button
-            className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
-              activeTab === 'system'
-                ? 'border-emerald-500 text-emerald-400'
-                : 'border-transparent text-slate-400 hover:text-slate-300'
-            }`}
+            className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${activeTab === 'system'
+              ? 'border-emerald-500 text-emerald-400'
+              : 'border-transparent text-slate-400 hover:text-slate-300'
+              }`}
             onClick={() => setActiveTab('system')}
           >
             <Sparkles className="w-4 h-4" />
             <span>System Prompt</span>
           </button>
+          <button
+            className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${activeTab === 'voice'
+              ? 'border-emerald-500 text-emerald-400'
+              : 'border-transparent text-slate-400 hover:text-slate-300'
+              }`}
+            onClick={() => setActiveTab('voice')}
+          >
+            <Mic className="w-4 h-4" />
+            <span>Voice Settings</span>
+          </button>
         </div>
-        
+
         {/* Content */}
         <div className="flex-1 overflow-auto p-4 space-y-4">
-          {activeTab === 'profile' 
-            ? renderProfileTab() 
-            : renderSystemTab()}
-          
+          {activeTab === 'profile'
+            ? renderProfileTab()
+            : activeTab === 'system'
+              ? renderSystemTab()
+              : renderVoiceTab()}
+
           {saveError && (
             <div className="text-red-400 text-sm p-2 bg-red-900/20 border border-red-900/30 rounded">
               {saveError}
             </div>
           )}
         </div>
-        
+
         {/* Vision Settings Section */}
         <div className="px-4 py-3 border-t border-slate-700 bg-slate-800/30">
           <div className="flex items-center justify-between gap-2">
@@ -304,15 +371,13 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
             </div>
             <div className="flex items-center gap-2">
               <div
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  isVisionEnabled ? 'bg-indigo-600' : 'bg-slate-700'
-                }`}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isVisionEnabled ? 'bg-indigo-600' : 'bg-slate-700'
+                  }`}
                 onClick={() => setIsVisionEnabled(!isVisionEnabled)}
               >
                 <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    isVisionEnabled ? 'translate-x-6' : 'translate-x-1'
-                  }`}
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isVisionEnabled ? 'translate-x-6' : 'translate-x-1'
+                    }`}
                 />
               </div>
               <span className="text-xs text-slate-400">
@@ -324,7 +389,7 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
             When enabled, Vocalis can analyze images and provide visual context (coming soon).
           </p>
         </div>
-        
+
         {/* Footer */}
         <div className="p-4 border-t border-slate-700 flex justify-end space-x-2">
           <button
