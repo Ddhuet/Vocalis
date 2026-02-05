@@ -5,7 +5,7 @@ Handles loading and initializing the vision model for image understanding.
 """
 
 import logging
-from transformers import AutoProcessor, AutoModelForVision2Seq
+from transformers import AutoProcessor, AutoModelForImageTextToText
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -48,7 +48,7 @@ class VisionService:
             
             # These calls will trigger the download if the model isn't cached locally
             self.processor = AutoProcessor.from_pretrained(self.model_name)
-            self.model = AutoModelForVision2Seq.from_pretrained(self.model_name)
+            self.model = AutoModelForImageTextToText.from_pretrained(self.model_name)
             
             # Move model to GPU if available
             self.model = self.model.to(self.device)
