@@ -56,7 +56,9 @@ async def lifespan(app: FastAPI):
     
     # Initialize LLM service
     llm_service = LLMClient(
-        api_endpoint=cfg["llm_api_endpoint"]
+        api_endpoint=cfg["llm_api_endpoint"],
+        api_key=cfg["llm_api_key"],
+        model=cfg["llm_model"]
     )
     
     # Initialize TTS service

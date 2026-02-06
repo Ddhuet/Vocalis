@@ -1,13 +1,13 @@
 """
 LLM Service
 
-Handles communication with the local LLM API endpoint.
+Handles communication with the LLM API using the OpenAI library.
 """
 
 import json
-import requests
 import logging
 from typing import Dict, Any, List, Optional
+from openai import OpenAI
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -15,16 +15,16 @@ logger = logging.getLogger(__name__)
 
 class LLMClient:
     """
-    Client for communicating with a local LLM API.
+    Client for communicating with an LLM API using the OpenAI library.
     
-    This class handles requests to a locally hosted LLM API that follows
-    the OpenAI API format.
+    This class handles requests to an LLM API that follows the OpenAI API format.
     """
     
     def __init__(
         self,
-        api_endpoint: str = "http://127.0.0.1:1234/v1/chat/completions",
-        model: str = "default",
+        api_endpoint: str = "http://127.0.0.1:1234/v1",
+        api_key: str = "",
+        model: str = "",
         temperature: float = 0.7,
         max_tokens: int = 2048,
         timeout: int = 60
@@ -33,13 +33,15 @@ class LLMClient:
         Initialize the LLM client.
         
         Args:
-            api_endpoint: URL of the local LLM API
-            model: Model name to use (or 'default' for API default)
+            api_endpoint: Base URL of the LLM API (e.g., http://127.0.0.1:1234/v1)
+            api_key: API key for authentication (blank if not required)
+            model: Model name to use (blank if API has only one model)
             temperature: Sampling temperature (0.0 to 1.0)
             max_tokens: Maximum tokens to generate
             timeout: Request timeout in seconds
         """
         self.api_endpoint = api_endpoint
+        self.api_key = api_key
         self.model = model
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -48,6 +50,13 @@ class LLMClient:
         # State tracking
         self.is_processing = False
         self.conversation_history = []
+        
+        # Initialize OpenAI client
+        self.client = OpenAI(
+            base_url=api_endpoint,
+            api_key=api_key,
+            timeout=timeout
+        )
         
         logger.info(f"Initialized LLM Client with endpoint={api_endpoint}")
         
@@ -118,46 +127,31 @@ class LLMClient:
                     "content": user_input
                 })
             
-            # Prepare request payload with custom temperature if provided
-            payload = {
-                "model": self.model if self.model != "default" else None,
-                "messages": messages,
-                "temperature": temperature if temperature is not None else self.temperature,
-                "max_tokens": self.max_tokens
-            }
-            
-            # Remove None values
-            payload = {k: v for k, v in payload.items() if v is not None}
-            
-            # Log the full payload (truncated for readability)
-            payload_str = json.dumps(payload)
+            # Log the messages being sent
             logger.info(f"Sending request to LLM API with {len(messages)} messages")
-            
-            # Add more detailed logging to help debug message duplication
             message_roles = [msg["role"] for msg in messages]
             user_message_count = message_roles.count("user")
             logger.info(f"Message roles: {message_roles}, user messages: {user_message_count}")
             
-            if len(payload_str) > 500:
-                logger.debug(f"Payload (truncated): {payload_str[:500]}...")
-            else:
-                logger.debug(f"Payload: {payload_str}")
+            # Prepare request parameters
+            request_params = {
+                "messages": messages,
+                "temperature": temperature if temperature is not None else self.temperature,
+                "max_tokens": self.max_tokens,
+                "extra_body": {
+                    "reasoning": {"enabled": False}
+                }
+            }
             
-            # Send request to LLM API
-            response = requests.post(
-                self.api_endpoint,
-                json=payload,
-                timeout=self.timeout
-            )
+            # Only add model if it's not blank
+            if self.model:
+                request_params["model"] = self.model
             
-            # Check if request was successful
-            response.raise_for_status()
-            
-            # Parse response
-            result = response.json()
+            # Send request to LLM API using OpenAI client
+            completion = self.client.chat.completions.create(**request_params)
             
             # Extract assistant response
-            assistant_message = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            assistant_message = completion.choices[0].message.content if completion.choices else ""
             
             # Add assistant response to history (only if we added the user input)
             if assistant_message and add_to_history:
@@ -172,33 +166,25 @@ class LLMClient:
             return {
                 "text": assistant_message,
                 "processing_time": processing_time,
-                "finish_reason": result.get("choices", [{}])[0].get("finish_reason"),
-                "model": result.get("model", "unknown")
+                "finish_reason": completion.choices[0].finish_reason if completion.choices else None,
+                "model": completion.model if completion.model else "unknown"
             }
             
-        except requests.RequestException as e:
+        except Exception as e:
             logger.error(f"LLM API request error: {e}")
             error_response = f"I'm sorry, I encountered a problem connecting to my language model. {str(e)}"
             
-            # Add the error to history if requested and clear history on 400 errors
-            # to prevent the same error from happening repeatedly
+            # Add the error to history if requested
             if add_to_history:
                 self.add_to_history("assistant", error_response)
                 
-                # If we get a 400 Bad Request, the context might be corrupt
-                if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 400:
-                    logger.warning("Received 400 error, clearing conversation history to recover")
+                # Check if it's a context length error (typically 400 or similar)
+                error_str = str(e).lower()
+                if "400" in error_str or "context" in error_str or "too long" in error_str:
+                    logger.warning("Received context error, clearing conversation history to recover")
                     # Keep only system prompt if it exists
                     self.clear_history(keep_system_prompt=True)
             
-            return {
-                "text": error_response,
-                "error": str(e)
-            }
-        except Exception as e:
-            logger.error(f"LLM processing error: {e}")
-            error_response = "I'm sorry, I encountered an unexpected error. Please try again."
-            self.add_to_history("assistant", error_response)
             return {
                 "text": error_response,
                 "error": str(e)
@@ -227,7 +213,8 @@ class LLMClient:
         """
         return {
             "api_endpoint": self.api_endpoint,
-            "model": self.model,
+            "api_key": "***" if self.api_key else "(blank)",
+            "model": self.model if self.model else "(default)",
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
             "timeout": self.timeout,

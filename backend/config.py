@@ -13,7 +13,9 @@ from typing import Dict, Any
 load_dotenv()
 
 # API Endpoints
-LLM_API_ENDPOINT = os.getenv("LLM_API_ENDPOINT", "http://127.0.0.1:1234/v1/chat/completions")
+LLM_API_ENDPOINT = os.getenv("LLM_API_ENDPOINT", "http://127.0.0.1:1234/v1")
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+LLM_MODEL = os.getenv("LLM_MODEL", "")
 TTS_API_ENDPOINT = os.getenv("TTS_API_ENDPOINT", "http://localhost:5005/v1/audio/speech")
 
 # Whisper Model Configuration
@@ -42,6 +44,8 @@ def get_config() -> Dict[str, Any]:
     """
     return {
         "llm_api_endpoint": LLM_API_ENDPOINT,
+        "llm_api_key": LLM_API_KEY,
+        "llm_model": LLM_MODEL,
         "tts_api_endpoint": TTS_API_ENDPOINT,
         "whisper_model": WHISPER_MODEL,
         "tts_model": TTS_MODEL,
