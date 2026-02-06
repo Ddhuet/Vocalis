@@ -164,5 +164,5 @@ if __name__ == "__main__":
         "backend.main:app",
         host=config.WEBSOCKET_HOST,
         port=config.WEBSOCKET_PORT,
-        reload=True
+        reload=False
     )
