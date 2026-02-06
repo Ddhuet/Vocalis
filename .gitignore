@@ -6,3 +6,4 @@ backend/routes/__pycache__/
 prompts/
 OPENAI_LIBRARY_DOC.MD
 OPENROUTER_EXAMPLE.MD
+backend/.env
