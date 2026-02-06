@@ -408,6 +408,9 @@ class WebSocketManager:
                 "timestamp": datetime.now().isoformat()
             })
 
+            # Ensure system prompt is in conversation history so it gets persisted
+            self._ensure_system_prompt_in_history()
+
             # Check if we have recent vision context to incorporate
             has_vision_context = self.current_vision_context is not None
             
@@ -614,39 +617,50 @@ class WebSocketManager:
         else:
             return f"Create a {approach} for someone who hasn't responded to your last message. Be brief and conversational. Do not do anything else."
 
-    def _initialize_conversation_context(self):
+    def _ensure_system_prompt_in_history(self):
         """
-        Initialize or update the conversation context with user information.
-        This ensures the LLM has access to the user's name throughout the conversation.
+        Ensure the main system prompt is stored as the first message in conversation history.
+        This way it gets persisted when saving sessions.
         """
-        # Check if user has a name
+        if not self.system_prompt:
+            return
+        
+        # Build the full system prompt with user name if available
         user_name = self._get_user_name()
-        if not user_name:
-            logger.info("No user name set, skipping context initialization")
-            return False
-            
-        logger.info(f"Initializing conversation context with user name: {user_name}")
+        full_system_prompt = self.system_prompt
+        if user_name:
+            full_system_prompt = f"{self.system_prompt}\n\nThe user's name is {user_name}."
         
-        # Format the context message
-        context_message = {
-            "role": "system",
-            "content": f"USER CONTEXT: The user's name is {user_name}."
-        }
-        
-        # Check if we already have a system prompt as the first message
-        if self.llm_client.conversation_history and self.llm_client.conversation_history[0]["role"] == "system":
-            # Check if we already have a user context message
-            if len(self.llm_client.conversation_history) > 1 and "USER CONTEXT" in self.llm_client.conversation_history[1].get("content", ""):
-                # Replace existing context message
-                self.llm_client.conversation_history[1] = context_message
+        # Check if the system prompt is already the first message
+        if self.llm_client.conversation_history and self.llm_client.conversation_history[0].get("role") == "system":
+            # Check if it already contains our system prompt
+            existing_content = self.llm_client.conversation_history[0].get("content", "")
+            if self.system_prompt in existing_content:
+                # System prompt already in history, check if we need to update user name
+                if user_name and f"The user's name is {user_name}" in existing_content:
+                    # User name already correct, skip
+                    return
+                elif user_name:
+                    # Update the user name in the existing system message
+                    # Remove old user name line if exists
+                    lines = existing_content.split('\n')
+                    filtered_lines = [line for line in lines if not line.startswith("The user's name is")]
+                    filtered_lines.append(f"The user's name is {user_name}.")
+                    self.llm_client.conversation_history[0]["content"] = '\n'.join(filtered_lines)
+                    logger.info(f"Updated system prompt with user name: {user_name}")
+                    return
             else:
-                # Insert after system prompt
-                self.llm_client.conversation_history.insert(1, context_message)
-        else:
-            # No system prompt, add context as first message
-            self.llm_client.conversation_history.insert(0, context_message)
-            
-        return True
+                # Replace the first system message with our prompt
+                self.llm_client.conversation_history[0]["content"] = full_system_prompt
+                logger.info("Updated system prompt in conversation history")
+                return
+        
+        # Insert the system prompt as the very first message
+        self.llm_client.conversation_history.insert(0, {
+            "role": "system",
+            "content": full_system_prompt
+        })
+        logger.info("Added system prompt to conversation history")
 
     async def _handle_greeting(self, websocket: WebSocket):
         """
@@ -671,20 +685,26 @@ class WebSocketManager:
             # Restore saved conversation history
             self.llm_client.conversation_history = saved_history
             
-            # Initialize conversation context with user information
-            # This ensures the LLM knows the user's name in subsequent interactions
-            self._initialize_conversation_context()
+            # Add system prompt to history if not already present
+            # This also includes the user's name if set
+            self._ensure_system_prompt_in_history()
+            
+            # Add the greeting as an assistant message to conversation history
+            greeting_text = llm_response["text"]
+            if greeting_text:
+                self.llm_client.add_to_history("assistant", greeting_text)
+                logger.info(f"Added greeting to conversation history: {greeting_text[:50]}...")
             
             # Send LLM response
             await websocket.send_json({
                 "type": MessageType.LLM_RESPONSE,
-                "text": llm_response["text"],
+                "text": greeting_text,
                 "metadata": {k: v for k, v in llm_response.items() if k != "text"},
                 "timestamp": datetime.now().isoformat()
             })
             
             # Generate and send TTS audio
-            await self._send_tts_response(websocket, llm_response["text"])
+            await self._send_tts_response(websocket, greeting_text)
             
         except Exception as e:
             logger.error(f"Error generating greeting: {e}")
@@ -923,13 +943,12 @@ class WebSocketManager:
                 await self._send_status(websocket, "interrupted", {})
                 
             elif message_type == "clear_history":
-                # Clear conversation history
-                self.llm_client.clear_history(keep_system_prompt=True)
+                # Clear conversation history (removes all messages including system prompt)
+                self.llm_client.clear_history(keep_system_prompt=False)
                 
-                # Reinitialize conversation context to maintain user name awareness
-                # This ensures the LLM retains knowledge of the user's name even after history is cleared
-                self._initialize_conversation_context()
-                logger.info("Reinitialized user context after clearing history")
+                # Re-add system prompt with user name to maintain context
+                self._ensure_system_prompt_in_history()
+                logger.info("Reinitialized system prompt after clearing history")
                 
                 await self._send_status(websocket, "history_cleared", {})
                 
@@ -1068,9 +1087,9 @@ class WebSocketManager:
             
             # Update conversation context with the new name
             if success:
-                # Initialize conversation context with the updated name
-                self._initialize_conversation_context()
-                logger.info(f"Updated user profile name to: {name} and refreshed conversation context")
+                # Update system prompt with the new user name
+                self._ensure_system_prompt_in_history()
+                logger.info(f"Updated user profile name to: {name} and refreshed system prompt")
             else:
                 logger.error("Failed to update user profile")
             
