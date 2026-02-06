@@ -278,26 +278,10 @@ class WebSocketManager:
             # Transcribe speech
             await self._send_status(websocket, "transcribing", {})
             transcript, metadata = self.transcriber.transcribe(speech_audio)
-            
-            # Send transcription result
-            await websocket.send_json({
-                "type": MessageType.TRANSCRIPTION,
-                "text": transcript,
-                "metadata": metadata,
-                "timestamp": datetime.now().isoformat()
-            })
-            
+
             # Skip LLM and TTS if transcription is empty
             if not transcript.strip():
                 logger.info("Empty transcription, skipping LLM and TTS")
-                
-                # Notify frontend that transcription occurred (even if it's just "...") to let it reset
-                await websocket.send_json({
-                    "type": MessageType.TRANSCRIPTION,
-                    "text": transcript,
-                    "metadata": {},
-                    "timestamp": datetime.now().isoformat()
-                })
 
                 # Still send TTS_END to fully reset UI
                 await websocket.send_json({
@@ -352,7 +336,11 @@ class WebSocketManager:
                         return
                 else:
                     logger.info(f"Wake word enabled but '{wake_word}' not found in: '{transcript}'")
-                    # Ignore this chunk completely
+                    # Ignore this chunk completely - reset UI to listening state immediately
+                    await websocket.send_json({
+                        "type": MessageType.TTS_END,
+                        "timestamp": datetime.now().isoformat()
+                    })
                     return
 
             # 2. Handle Send Word (or immediate processing if disabled)
