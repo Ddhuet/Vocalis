@@ -15,6 +15,10 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
   const [saveError, setSaveError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'profile' | 'system' | 'voice' | 'vision'>('profile');
   const [isVisionEnabled, setIsVisionEnabled] = useState(false);
+  const [isWakeWordEnabled, setIsWakeWordEnabled] = useState(false);
+  const [wakeWord, setWakeWord] = useState('Biscuit');
+  const [isSendWordEnabled, setIsSendWordEnabled] = useState(false);
+  const [sendWord, setSendWord] = useState('taxi');
   const [isAiFollowupsEnabled, setIsAiFollowupsEnabled] = useState(false);
 
   useEffect(() => {
@@ -42,8 +46,12 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
       };
 
       const handleVoiceSettings = (data: any) => {
-        if (data && data.ai_followups_enabled !== undefined) {
-          setIsAiFollowupsEnabled(data.ai_followups_enabled);
+        if (data) {
+          if (data.ai_followups_enabled !== undefined) setIsAiFollowupsEnabled(data.ai_followups_enabled);
+          if (data.wake_word_enabled !== undefined) setIsWakeWordEnabled(data.wake_word_enabled);
+          if (data.wake_word !== undefined) setWakeWord(data.wake_word);
+          if (data.send_word_enabled !== undefined) setIsSendWordEnabled(data.send_word_enabled);
+          if (data.send_word !== undefined) setSendWord(data.send_word);
         }
       };
 
@@ -167,7 +175,13 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
     websocketService.updateSystemPrompt(systemPrompt);
     websocketService.updateUserProfile(userName);
     websocketService.updateVisionSettings(isVisionEnabled);
-    websocketService.updateVoiceSettings(isAiFollowupsEnabled);
+    websocketService.updateVoiceSettings(
+      isAiFollowupsEnabled,
+      isWakeWordEnabled,
+      wakeWord,
+      isSendWordEnabled,
+      sendWord
+    );
   };
 
   // backticks, in my code, in the year of our lord, 2025? no.
@@ -216,8 +230,66 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
   );
 
   const renderVoiceTab = () => (
-    <div className="space-y-4">
-      <div className="space-y-2">
+    <div className="space-y-6">
+      <div className="space-y-3">
+        <label className="text-sm font-medium text-slate-300">Wake Word</label>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center">
+            <div
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isWakeWordEnabled ? 'bg-emerald-600' : 'bg-slate-700'
+                }`}
+              onClick={() => setIsWakeWordEnabled(!isWakeWordEnabled)}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isWakeWordEnabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+              />
+            </div>
+          </div>
+          <input
+            type="text"
+            value={wakeWord}
+            onChange={(e) => setWakeWord(e.target.value)}
+            disabled={!isWakeWordEnabled}
+            placeholder="e.g. Biscuit"
+            className={`flex-1 bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-colors ${!isWakeWordEnabled ? 'opacity-50 text-slate-500 cursor-not-allowed' : 'text-slate-300'}`}
+          />
+        </div>
+        <p className="text-xs text-slate-400">
+          When enabled, Vocalis will only start listening after hearing this word/phrase.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <label className="text-sm font-medium text-slate-300">Send Word</label>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center">
+            <div
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isSendWordEnabled ? 'bg-emerald-600' : 'bg-slate-700'
+                }`}
+              onClick={() => setIsSendWordEnabled(!isSendWordEnabled)}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isSendWordEnabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+              />
+            </div>
+          </div>
+          <input
+            type="text"
+            value={sendWord}
+            onChange={(e) => setSendWord(e.target.value)}
+            disabled={!isSendWordEnabled}
+            placeholder="e.g. Taxi"
+            className={`flex-1 bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500 transition-colors ${!isSendWordEnabled ? 'opacity-50 text-slate-500 cursor-not-allowed' : 'text-slate-300'}`}
+          />
+        </div>
+        <p className="text-xs text-slate-400">
+          When enabled, Vocalis will listen continuously until it hears this word, then send everything you said to the AI.
+        </p>
+      </div>
+
+      <div className="space-y-2 pt-2 border-t border-slate-700/50">
         <label className="text-sm font-medium text-slate-300">AI Initiated Followups</label>
         <div className="flex items-center">
           <div
@@ -235,17 +307,8 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
           </span>
         </div>
         <p className="text-xs text-slate-400">
-          When enabled, Vocalis will occasionally speak on its own if you go silent during a conversation,
-          attempting to continue the discussion or check in with you.
+          When enabled, Vocalis will occasionally speak on its own if you go silent during a conversation.
         </p>
-        {isAiFollowupsEnabled && (
-          <div className="mt-4 p-3 bg-amber-900/20 border border-amber-800/30 rounded-lg">
-            <p className="text-xs text-amber-300">
-              <strong>Note:</strong> The AI will send follow-up messages if you don't respond within a few seconds.
-              This can make conversations feel more natural but may be distracting in some situations.
-            </p>
-          </div>
-        )}
       </div>
     </div>
   );

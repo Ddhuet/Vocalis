@@ -22,74 +22,74 @@ const ChatInterface: React.FC = () => {
   const [callActive, setCallActive] = useState(true);
   const [visionEnabled, setVisionEnabled] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  
+
   // Vision-related state
   const [isVisionContext, setIsVisionContext] = useState(false);
   const [visionImageContext, setVisionImageContext] = useState<string | null>(null);
-  
+
   // End call toast notification
   const [showEndCallToast, setShowEndCallToast] = useState(false);
-  
+
   // Conversation behavior state
   const [isFirstInteraction, setIsFirstInteraction] = useState(true);
   const [followUpTier, setFollowUpTier] = useState(0);
   const [followUpTimer, setFollowUpTimer] = useState<NodeJS.Timeout | null>(null);
   const [preventFollowUp, setPreventFollowUp] = useState(false); // Flag to prevent follow-ups after ending a call
-  
+
   // Audio activity tracking - separate from full "listening" state
   // This detects even low-level audio that might block follow-ups but not trigger full listening
   const [potentialSpeechActivity, setPotentialSpeechActivity] = useState(false);
   const speechActivityTimeout = useRef<NodeJS.Timeout | null>(null);
-  
+
   // Timeout to prevent getting stuck in listening state if Whisper doesn't process the audio
   const [listeningTimeout, setListeningTimeout] = useState<NodeJS.Timeout | null>(null);
-  
+
   // Handle the vision button action
   const handleVisionAction = () => {
     // Prevent action if already in a protected state
-    if (assistantState === 'processing' || 
-        assistantState === 'vision_processing' || 
-        assistantState === 'greeting') {
+    if (assistantState === 'processing' ||
+      assistantState === 'vision_processing' ||
+      assistantState === 'greeting') {
       console.log(`Cannot activate vision in ${assistantState} state`);
       return;
     }
-    
+
     // Reset any existing vision context
     setIsVisionContext(false);
     setVisionImageContext(null);
-    
+
     // Transition to vision file state
     setAssistantState('vision_file');
-    
+
     console.log('Entering vision file state');
   };
-  
+
   // Handle file selection for vision
   const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
+
     // Check file size (5MB max)
     if (file.size > 5 * 1024 * 1024) {
       setError("File too large. Maximum size is 5MB.");
       return;
     }
-    
+
     // Read file as base64
     const reader = new FileReader();
     reader.onload = () => {
       const base64Data = reader.result?.toString().split(',')[1] || '';
-      
+
       // Move to processing state
       setAssistantState('vision_processing');
-      
+
       // Send image to server
       websocketService.sendVisionImage(base64Data);
     };
-    
+
     reader.readAsDataURL(file);
   };
-  
+
   // Add timeout for vision_file state
   useEffect(() => {
     if (assistantState === 'vision_file') {
@@ -98,11 +98,11 @@ const ChatInterface: React.FC = () => {
         console.log('Vision file timeout expired, returning to idle');
         setAssistantState('idle');
       }, 10000); // 10 seconds
-      
+
       return () => clearTimeout(timeout);
     }
   }, [assistantState]);
-  
+
   // Listen for vision processing events
   useEffect(() => {
     // Handle vision processing updates
@@ -111,19 +111,19 @@ const ChatInterface: React.FC = () => {
         console.log(`Vision processing: ${data.status}`);
       }
     };
-    
+
     // Handle vision processing complete
     const handleVisionReady = (data: any) => {
       if (data && data.context) {
         console.log('Vision processing complete');
         setVisionImageContext(data.context);
         setIsVisionContext(true);
-        
+
         // Move to vision ASR state
         setAssistantState('vision_asr');
       }
     };
-    
+
     // Handle file upload result
     const handleVisionFileResult = (data: any) => {
       if (data && data.success) {
@@ -134,12 +134,12 @@ const ChatInterface: React.FC = () => {
         setAssistantState('idle');
       }
     };
-    
+
     // Add vision event listeners
     websocketService.addEventListener(MessageType.VISION_PROCESSING as any, handleVisionProcessing);
     websocketService.addEventListener(MessageType.VISION_READY as any, handleVisionReady);
     websocketService.addEventListener(MessageType.VISION_FILE_UPLOAD_RESULT as any, handleVisionFileResult);
-    
+
     return () => {
       // Remove listeners
       websocketService.removeEventListener(MessageType.VISION_PROCESSING as any, handleVisionProcessing);
@@ -147,50 +147,50 @@ const ChatInterface: React.FC = () => {
       websocketService.removeEventListener(MessageType.VISION_FILE_UPLOAD_RESULT as any, handleVisionFileResult);
     };
   }, []);
-  
+
   // Handle ending a call
   const handleEndCall = () => {
     // Release all hardware access - completely stops the microphone
     // This is more aggressive than just stopRecording/stopPlayback
     audioService.releaseHardware();
-    
+
     // Send interrupt to server if needed
     websocketService.interrupt();
-    
+
     // Deactivate call - this is critical to stop voice processing
     setCallActive(false);
-    
+
     // Clear conversation history on server
     websocketService.clearHistory();
-    
+
     // Reset local state
     setTranscript('');
     setResponse('');
     setIsFirstInteraction(true);
     setFollowUpTier(0);
-    
+
     // Clear any greeting flow protection
     websocketService.setGreetingFlowState(false);
-    
+
     // Prevent any follow-ups after ending the call
     setPreventFollowUp(true);
-    
+
     // Clear any existing follow-up timer
     if (followUpTimer) {
       clearTimeout(followUpTimer);
       setFollowUpTimer(null);
     }
-    
+
     // Set to idle state
     setAssistantState('idle');
-    
+
     // Show brief toast notification
     setShowEndCallToast(true);
     setTimeout(() => setShowEndCallToast(false), 3000);
-    
+
     console.log('Call ended, conversation reset, microphone deactivated');
   };
-  
+
   // Monitor connection state changes and handle transitions
   useEffect(() => {
     // If connection state changes to connected
@@ -200,19 +200,19 @@ const ChatInterface: React.FC = () => {
         console.log('Connection established - clearing any WebSocket errors');
         setError(null);
       }
-      
+
       // Show the connected status briefly
       setShowConnectedStatus(true);
-      
+
       // Then hide it after a delay
       const timer = setTimeout(() => {
         setShowConnectedStatus(false);
       }, 2000); // Show for 2 seconds
-      
+
       return () => clearTimeout(timer);
     }
   }, [connectionState, error]);
-  
+
   // Initialize WebSocket and event listeners
   useEffect(() => {
     // Add a small delay before initial connection attempt
@@ -221,18 +221,18 @@ const ChatInterface: React.FC = () => {
       // Connect to WebSocket
       websocketService.connect();
     }, 500); // 500ms delay
-    
+
     // Clean up timer if component unmounts before timeout completes
     return () => clearTimeout(connectionTimer);
   }, []); // Empty dependency array means this only runs once on mount
-  
+
   // Handle microphone mute toggle
   const handleMuteToggle = () => {
     const newMuteState = audioService.toggleMicrophoneMute();
     setIsMuted(newMuteState);
     console.log(`Microphone ${newMuteState ? 'muted' : 'unmuted'}`);
   };
-  
+
   // Listen for vision settings and updates
   useEffect(() => {
     const handleVisionSettings = (data: any) => {
@@ -241,7 +241,7 @@ const ChatInterface: React.FC = () => {
         setVisionEnabled(data.enabled);
       }
     };
-    
+
     const handleVisionSettingsUpdated = (data: any) => {
       if (data && data.success) {
         // When successful update occurs, request the latest settings
@@ -249,23 +249,23 @@ const ChatInterface: React.FC = () => {
         websocketService.getVisionSettings();
       }
     };
-    
+
     const handleConnectionOpen = () => {
       console.log('WebSocket connected, requesting vision settings');
       websocketService.getVisionSettings();
     };
-    
+
     // Add all event listeners
     websocketService.addEventListener(MessageType.VISION_SETTINGS as any, handleVisionSettings);
     websocketService.addEventListener(MessageType.VISION_SETTINGS_UPDATED as any, handleVisionSettingsUpdated);
     websocketService.addEventListener('open', handleConnectionOpen);
-    
+
     // ALSO check if we're already connected, and if so, request settings immediately
     if (websocketService.getConnectionState() === ConnectionState.CONNECTED) {
       console.log('Already connected, requesting vision settings immediately');
       websocketService.getVisionSettings();
     }
-    
+
     return () => {
       // Clean up all listeners
       websocketService.removeEventListener(MessageType.VISION_SETTINGS as any, handleVisionSettings);
@@ -276,36 +276,36 @@ const ChatInterface: React.FC = () => {
 
   // Set up event listeners (in a separate effect so the delay doesn't affect listeners)
   useEffect(() => {
-    
+
     // Update connection state
     const handleConnectionChange = () => {
       const state = websocketService.getConnectionState();
       setConnectionState(state);
       setIsConnected(state === ConnectionState.CONNECTED);
     };
-    
+
     // Handle raw audio data for early voice detection
     const handleAudioData = (data: any) => {
       // Two-tier threshold approach:
-      
+
       // 1. LOWER threshold for "potential speech" - blocks follow-ups but doesn't show listening UI
       //    This catches background noise to prevent follow-up interruptions
       if (data.energy > 0.005) { // Very low threshold
         setPotentialSpeechActivity(true);
-        
+
         // Reset timeout
         if (speechActivityTimeout.current) {
           clearTimeout(speechActivityTimeout.current);
         }
-        
+
         // Auto-clear after short delay if it was just background noise
         speechActivityTimeout.current = setTimeout(() => {
           setPotentialSpeechActivity(false);
         }, 1500);
-        
+
         console.log(`Audio energy detected: ${data.energy.toFixed(4)}, potential speech = true`);
       }
-      
+
       // 2. HIGHER threshold for actual speech - shows listening UI
       //    This uses the VAD's more strict threshold (0.01)
       if (data.isVoice) {
@@ -314,12 +314,12 @@ const ChatInterface: React.FC = () => {
           console.log(`Voice detected but call is not active, ignoring (energy: ${data.energy.toFixed(4)})`);
           return;
         }
-        
+
         // Check if we're in processing, vision_processing, or greeting state - all should ignore voice
         if (assistantState === 'processing' || assistantState === 'vision_processing' || assistantState === 'greeting') {
           // Only log without changing state - effectively ignoring voice detection
           console.log(`Voice detected during ${assistantState} state (energy: ${data.energy.toFixed(4)}), ignoring`);
-        } 
+        }
         // For all other states (idle, speaking), use normal sensitivity
         else if (assistantState === 'idle' || assistantState === 'speaking') {
           console.log(`Voice detected (VAD), energy: ${data.energy.toFixed(4)}, changing state to listening`);
@@ -333,44 +333,54 @@ const ChatInterface: React.FC = () => {
         }
       }
     };
-    
+
     // Add listener for raw audio data
     audioService.addEventListener(AudioEvent.RECORDING_DATA, handleAudioData);
-    
+
     // Handle transcription results
     const handleTranscription = (data: any) => {
       setTranscript(data.text);
-    
+
       if (!data.text.trim()) {
         console.log("Empty transcript received, returning to idle");
         setAssistantState('idle');
+      } else if (data.metadata?.buffering || data.metadata?.wake_word_detected) {
+        // If buffering (waiting for send word) or just activated wake word, stay in listening
+        console.log(`Transcription update (buffering=${!!data.metadata?.buffering}, wake_word=${!!data.metadata?.wake_word_detected}), maintaining listening state`);
+        setAssistantState('listening');
       } else {
         setAssistantState('processing');
       }
     };
-    
+
+    // Handle LLM sending status (explicit trigger for processing state)
+    const handleLLMSending = () => {
+      console.log('Received LLM_SENDING signal, transitioning to processing state');
+      setAssistantState('processing');
+    };
+
     // Handle LLM response
     const handleLLMResponse = (data: any) => {
       // Store the response text
       setResponse(data.text);
-      
+
       // If we're in greeting state, this is the greeting response
       if (assistantState === 'greeting') {
         console.log('Received LLM response during greeting state');
         // Note: We'll transition to speaking when audio playback actually starts
       }
     };
-    
+
     // Audio playback event handlers - we use these instead of TTS WebSocket events
     const handlePlaybackStart = () => {
       console.log('Playback started, setting UI to speaking state');
       // Always log source of playback to help debug follow-up issues
       console.log(`Source context: isFirstInteraction=${isFirstInteraction}, followUpTier=${followUpTier}, state=${assistantState}`);
-      
+
       // Transition to speaking state regardless of whether we were in greeting, idle, or any other state
       setAssistantState('speaking');
     };
-    
+
     const handlePlaybackEnd = (data: any) => {
       // Add a small debounce to ensure we're really done
       setTimeout(() => {
@@ -378,20 +388,20 @@ const ChatInterface: React.FC = () => {
         if (!audioService.isCurrentlySpeaking()) {
           console.log('Playback truly ended, setting UI to idle state');
           console.log(`Audio state before idle: ${audioService.getAudioState()}, queue length: ${audioService.getAudioQueueLength()}`);
-          
+
           // End greeting flow protection once the initial greeting has finished playing
           if (previousAssistantState === 'speaking' && isFirstInteraction === false) {
             console.log('Initial greeting playback complete, ending greeting flow protection');
             websocketService.setGreetingFlowState(false);
           }
-          
+
           setAssistantState('idle');
         } else {
           console.log('Playback end event received but still speaking');
         }
       }, 100);
     };
-    
+
     // Handle WebSocket errors
     const handleError = (data: any) => {
       // Don't show WebSocket connection errors - we already have connection status indicators
@@ -402,40 +412,41 @@ const ChatInterface: React.FC = () => {
       }
       setAssistantState('idle');
     };
-    
+
     // Set up WebSocket event listeners
     websocketService.addEventListener('open', handleConnectionChange);
     websocketService.addEventListener('close', handleConnectionChange);
     websocketService.addEventListener('error', handleConnectionChange);
     websocketService.addEventListener('transcription', handleTranscription);
     websocketService.addEventListener('llm_response', handleLLMResponse);
+    websocketService.addEventListener('llm_sending', handleLLMSending);
     // Add error handler for non-connection errors
     websocketService.addEventListener('error', handleError);
-    
+
     // Set up audio service event listeners
     audioService.addEventListener(AudioEvent.RECORDING_START, () => {
       // Only change to listening state if we're not in a protected state
-      if (assistantState !== 'processing' && 
-          assistantState !== 'vision_processing' && 
-          assistantState !== 'vision_asr') {
+      if (assistantState !== 'processing' &&
+        assistantState !== 'vision_processing' &&
+        assistantState !== 'vision_asr') {
         setAssistantState('listening');
       } else {
         console.log(`Recording started during ${assistantState} state, maintaining state`);
       }
     });
-    
+
     audioService.addEventListener(AudioEvent.RECORDING_STOP, () => {
       // Don't set state here, it will change based on server response
     });
-    
+
     audioService.addEventListener(AudioEvent.PLAYBACK_START, handlePlaybackStart);
     audioService.addEventListener(AudioEvent.PLAYBACK_END, handlePlaybackEnd);
-    
+
     audioService.addEventListener(AudioEvent.AUDIO_ERROR, (data) => {
       setError(`Audio error: ${data.error?.message || 'Unknown error'}`);
       setAssistantState('idle');
     });
-    
+
     // Handle TTS audio chunks
     const handleTTSChunk = (data: any) => {
       if (data.audio_chunk) {
@@ -443,50 +454,51 @@ const ChatInterface: React.FC = () => {
         audioService.playAudioChunk(data.audio_chunk, data.format || 'mp3');
       }
     };
-    
+
     websocketService.addEventListener('tts_chunk', handleTTSChunk);
-    
+
     // Check connection state immediately
     handleConnectionChange();
-    
+
     // Return cleanup function
-    return () => {  
+    return () => {
       websocketService.removeEventListener('open', handleConnectionChange);
       websocketService.removeEventListener('close', handleConnectionChange);
       websocketService.removeEventListener('error', handleConnectionChange);
       websocketService.removeEventListener('transcription', handleTranscription);
       websocketService.removeEventListener('llm_response', handleLLMResponse);
+      websocketService.removeEventListener('llm_sending', handleLLMSending);
       websocketService.removeEventListener('error', handleError);
       websocketService.removeEventListener('tts_chunk', handleTTSChunk);
-      
+
       // Remove raw audio data listener
       audioService.removeEventListener(AudioEvent.RECORDING_DATA, handleAudioData);
-      
-      audioService.removeEventListener(AudioEvent.RECORDING_START, () => {});
-      audioService.removeEventListener(AudioEvent.RECORDING_STOP, () => {});
+
+      audioService.removeEventListener(AudioEvent.RECORDING_START, () => { });
+      audioService.removeEventListener(AudioEvent.RECORDING_STOP, () => { });
       audioService.removeEventListener(AudioEvent.PLAYBACK_START, handlePlaybackStart);
       audioService.removeEventListener(AudioEvent.PLAYBACK_END, handlePlaybackEnd);
-      audioService.removeEventListener(AudioEvent.AUDIO_ERROR, () => {});
-      
+      audioService.removeEventListener(AudioEvent.AUDIO_ERROR, () => { });
+
       // Clean up speech activity timeout if it exists
       if (speechActivityTimeout.current) {
         clearTimeout(speechActivityTimeout.current);
       }
-      
+
       // Disconnect WebSocket
       websocketService.disconnect();
     };
   }, []); // Keep empty dependency array to prevent WebSocket disconnection
-  
+
   // Track previous assistant state changes and sync with audio service
   useEffect(() => {
     setPreviousAssistantState(assistantState);
-    
+
     // Inform audio service about all protected states
     audioService.setProcessingState(assistantState === 'processing');
     audioService.setGreetingState(assistantState === 'greeting');
     audioService.setVisionProcessingState(assistantState === 'vision_processing');
-    
+
     // Cancel listening timeout when moving to processing, speaking, or greeting
     if (assistantState === 'processing' || assistantState === 'speaking' || assistantState === 'greeting') {
       if (listeningTimeout) {
@@ -495,28 +507,28 @@ const ChatInterface: React.FC = () => {
         setListeningTimeout(null);
       }
     }
-    
+
     // Add a timeout for the listening state to prevent getting stuck
     if (assistantState === 'listening') {
       // Clear any previous timeout
       if (listeningTimeout) {
         clearTimeout(listeningTimeout);
       }
-      
+
       // Set a new timeout
       const timeout = setTimeout(() => {
         // Double-check current state before resetting to idle
         // We need to make sure we're still in listening and not in another active state
         if (assistantState === 'listening') {
           console.log('Listening timeout exceeded (5s), checking if processing started...');
-          
+
           // Get latest audio and system state before resetting
           const audioState = audioService.getAudioState();
-          
+
           // Don't interrupt if audio is playing or if we've moved to another state
-          if (audioState !== AudioState.PLAYING && 
-              audioState !== AudioState.SPEAKING && 
-              assistantState === 'listening') {
+          if (audioState !== AudioState.PLAYING &&
+            audioState !== AudioState.SPEAKING &&
+            assistantState === 'listening') {
             console.log('No processing detected, returning to idle');
             setAssistantState('idle');
           } else {
@@ -524,10 +536,10 @@ const ChatInterface: React.FC = () => {
           }
         }
       }, 5000); // 5 seconds is enough time for Whisper to start processing
-      
+
       setListeningTimeout(timeout);
     }
-    
+
     // Clean up timeout
     return () => {
       if (listeningTimeout) {
@@ -535,7 +547,7 @@ const ChatInterface: React.FC = () => {
       }
     };
   }, [assistantState]);
-  
+
   // Handle silent follow-up timer
   useEffect(() => {
     // Clear any timer when the state changes to processing, speaking, or greeting
@@ -546,22 +558,22 @@ const ChatInterface: React.FC = () => {
         setFollowUpTimer(null);
       }
     }
-    
+
     // When call is reactivated, allow follow-ups again
     if (callActive && preventFollowUp) {
       setPreventFollowUp(false);
     }
-    
+
     // Only start a timer when assistant becomes idle after speaking AND is not processing
     // AND when follow-ups are allowed (not immediately after ending a call)
     if (assistantState === 'idle' && previousAssistantState === 'speaking' && !preventFollowUp) {
       console.log('Assistant became idle after speaking - preparing follow-up timer');
-      
+
       // Clear any existing timer
       if (followUpTimer) {
         clearTimeout(followUpTimer);
       }
-      
+
       // Adjust delay based on tier for a more natural conversation cadence
       // Shorter delays for more responsive follow-ups
       const minDelay = 2000 + (followUpTier * 1000); // 2s -> 3s -> 4s
@@ -569,26 +581,26 @@ const ChatInterface: React.FC = () => {
       const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
 
       console.log(`Setting silent follow-up timer for ${randomDelay}ms (tier ${followUpTier + 1})`);
-      
+
       // Create new timer
       const timer = setTimeout(() => {
         // When timer fires, check if we're still in a state where a follow-up makes sense
         // If we've moved to processing, speaking, or greeting in the meantime, we should abort
-        if (assistantState === 'processing' || assistantState === 'speaking' || 
-            assistantState === 'greeting' || preventFollowUp) {
+        if (assistantState === 'processing' || assistantState === 'speaking' ||
+          assistantState === 'greeting' || preventFollowUp) {
           console.log(`Follow-up timer fired but state is now ${assistantState} - aborting follow-up`);
           return;
         }
-        
+
         // Start a brief "listening window" to detect any just-started speech
         console.log(`Follow-up timer fired, starting pre-follow-up listening window (${followUpTier + 1})...`);
-        
+
         // Create a listening window of 800ms
         // This gives time for any just-started speech to be detected before sending follow-up
         const listeningWindow = setTimeout(() => {
           // After listening window, check conditions again
           const audioState = audioService.getAudioState();
-          
+
           // Multiple checks to ensure we should REALLY send a follow-up:
           // 1. We must be in idle state (not processing or speaking)
           // 2. No potential speech activity detected (lower threshold than full listening)
@@ -596,17 +608,17 @@ const ChatInterface: React.FC = () => {
           // 4. Audio must be inactive (not recording or playing)
           // 5. Follow-ups must not be prevented by recent call end
           if (
-            assistantState === 'idle' && 
+            assistantState === 'idle' &&
             assistantState !== 'processing' &&  // Double-check processing state
             !potentialSpeechActivity &&  // No audio activity (even low-level background noise)
-            isConnected && 
+            isConnected &&
             audioState === AudioState.INACTIVE &&
             !preventFollowUp  // Make sure follow-ups are allowed
           ) {
             console.log(`No speech detected during listening window, sending follow-up (tier ${followUpTier + 1})`);
             console.log(`Final audio state check: ${audioState}`);
             websocketService.sendSilentFollowUp(followUpTier);
-            
+
             // Increment tier for next time (cycle through 0-2)
             setFollowUpTier((prevTier) => (prevTier + 1) % 3);
           } else {
@@ -614,31 +626,31 @@ const ChatInterface: React.FC = () => {
             console.log(`State that prevented follow-up: assistantState=${assistantState}, audioState=${audioState}, preventFollowUp=${preventFollowUp}`);
           }
         }, 800); // 800ms listening window
-        
+
         // Store the listening window timer reference for cleanup
         const currentListeningWindow = listeningWindow;
-        
+
         // Update component cleanup to clear both timers
         return () => {
           clearTimeout(currentListeningWindow);
         };
       }, randomDelay);
-      
+
       setFollowUpTimer(timer);
     }
-    
+
     // If the user starts interacting (recording), clear timer and reset tier
     if (assistantState === 'listening') {
       // Reset tier counter when user speaks
       setFollowUpTier(0);
-      
+
       // Clear any timer
       if (followUpTimer) {
         clearTimeout(followUpTimer);
         setFollowUpTimer(null);
       }
     }
-    
+
     // Cleanup function
     return () => {
       if (followUpTimer) {
@@ -646,7 +658,7 @@ const ChatInterface: React.FC = () => {
       }
     };
   }, [assistantState, previousAssistantState, followUpTier, isConnected, callActive, preventFollowUp]);
-  
+
   // Handle the microphone/end call action
   const handleMicrophoneAction = async () => {
     // If we're not in the first interaction and not in processing state, allow end call
@@ -668,7 +680,7 @@ const ChatInterface: React.FC = () => {
             console.log(`Cannot start recording during ${assistantState} state`);
             return;
           }
-          
+
           // Check if assistant is currently speaking - if so, interrupt it
           if (assistantState === 'speaking') {
             console.log('Interrupting TTS playback due to new speech...');
@@ -676,7 +688,7 @@ const ChatInterface: React.FC = () => {
             websocketService.interrupt();
             setAssistantState('processing');
           }
-          
+
           // Always re-enable call state when starting microphone in first interaction
           if (isFirstInteraction) {
             // Enable call state first (critical for voice detection to work)
@@ -685,20 +697,20 @@ const ChatInterface: React.FC = () => {
             setPreventFollowUp(false);
             console.log('Call activated - voice processing enabled');
           }
-          
+
           // Start recording - this will reinitialize the audio context if needed
           console.log('Starting/restarting recording...');
           await audioService.startRecording();
-          
+
           // Send greeting after activating mic if this is the first interaction
           if (isFirstInteraction && isConnected) {
             console.log('First interaction - sending greeting after mic activation');
             // Set state to greeting to show greeting UI and prevent interruptions
             setAssistantState('greeting');
-            
+
             // This will automatically set greeting flow protection
             websocketService.sendGreeting();
-            
+
             console.log('Activated greeting flow protection');
             setIsFirstInteraction(false);
           }
@@ -726,7 +738,7 @@ const ChatInterface: React.FC = () => {
         }
       `}</style>
       <BackgroundStars />
-      
+
       {/* Main chat container */}
       <div className="flex-1 flex items-center justify-center">
         {/* Assistant orb */}
@@ -736,7 +748,7 @@ const ChatInterface: React.FC = () => {
           `}>
             <AssistantOrb state={assistantState} />
           </div>
-          
+
           {/* Status messages */}
           <div className="relative h-16 mt-4">
             {/* Greeting message */}
@@ -750,7 +762,7 @@ const ChatInterface: React.FC = () => {
                 <span className="text-blue-400/70 text-sm">Greeting...</span>
               </div>
             </div>
-            
+
             {/* Processing message */}
             <div className={`
               absolute inset-x-0 flex items-center justify-center
@@ -762,7 +774,7 @@ const ChatInterface: React.FC = () => {
                 <span className="text-white/70 text-sm">Processing...</span>
               </div>
             </div>
-            
+
             {/* Speaking message */}
             <div className={`
               absolute inset-x-0 flex items-center justify-center
@@ -774,7 +786,7 @@ const ChatInterface: React.FC = () => {
                 <span className="text-amber-400/70 text-sm">Speaking...</span>
               </div>
             </div>
-            
+
             {/* Listening message */}
             <div className={`
               absolute inset-x-0 flex items-center justify-center
@@ -786,7 +798,7 @@ const ChatInterface: React.FC = () => {
                 <span className="text-emerald-400/70 text-sm">Listening...</span>
               </div>
             </div>
-            
+
             {/* Vision ASR message */}
             <div className={`
               absolute inset-x-0 flex items-center justify-center
@@ -798,7 +810,7 @@ const ChatInterface: React.FC = () => {
                 <span className="text-emerald-400/70 text-sm">Ask...</span>
               </div>
             </div>
-            
+
             {/* Disconnected status */}
             <div className={`
               absolute inset-x-0 flex items-center justify-center bottom-0
@@ -810,7 +822,7 @@ const ChatInterface: React.FC = () => {
                 <span className="text-red-400/70 text-xs">Disconnected</span>
               </div>
             </div>
-            
+
             {/* Connected status - shows briefly then fades away */}
             <div className={`
               absolute inset-x-0 flex items-center justify-center bottom-0
@@ -822,7 +834,7 @@ const ChatInterface: React.FC = () => {
                 <span className="text-emerald-400/70 text-xs">Connected</span>
               </div>
             </div>
-            
+
             {/* End call toast - displays when conversation is reset */}
             <div className={`
               absolute inset-x-0 flex items-center justify-center top-0
@@ -835,7 +847,7 @@ const ChatInterface: React.FC = () => {
               </div>
             </div>
           </div>
-          
+
           {/* Transcription */}
           {transcript && (
             <div className="mt-4 max-w-md text-center text-slate-300/80 text-sm bg-slate-900/20 backdrop-blur-sm p-3 rounded-lg">
@@ -844,11 +856,11 @@ const ChatInterface: React.FC = () => {
           )}
         </div>
       </div>
-      
-        {/* Audio input controls */}
+
+      {/* Audio input controls */}
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3">
         {/* Audio visualizer would go here */}
-        
+
         {/* Vision button - Only shown when enabled */}
         {visionEnabled && (
           <button
@@ -859,53 +871,53 @@ const ChatInterface: React.FC = () => {
                 ? 'bg-sky-300/20 hover:bg-sky-300/30 border-sky-300/50' // Sky blue for vision file state
                 : assistantState === 'vision_asr'
                   ? 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-400/50' // Emerald for vision ASR
-                : assistantState === 'vision_processing'
-                  ? 'bg-teal-500/20 hover:bg-teal-500/30 border-teal-400/50 cursor-not-allowed' // Teal for vision processing
-                  : assistantState === 'listening' 
-                    ? 'bg-indigo-500/20 hover:bg-indigo-500/30 border-indigo-400/50' // Purple-blue for listening
-                    : assistantState === 'greeting'
-                      ? 'bg-indigo-500/20 hover:bg-indigo-500/30 border-indigo-400/50 cursor-not-allowed' // Purple-blue for greeting
-                      : assistantState === 'processing'
-                        ? 'bg-slate-900/50 border-purple-400/30 cursor-not-allowed' // Purple for processing (disabled)
-                        : assistantState === 'speaking'
-                          ? 'bg-indigo-500/10 hover:bg-indigo-500/20 border-indigo-400/30' // Purple-blue for speaking
-                          : isFirstInteraction
-                            ? 'bg-indigo-900/20 border-indigo-400/10 cursor-not-allowed opacity-50' // Disabled state before call starts
-                            : 'bg-indigo-900/30 hover:bg-indigo-900/40 border-indigo-400/30' // Default for idle
+                  : assistantState === 'vision_processing'
+                    ? 'bg-teal-500/20 hover:bg-teal-500/30 border-teal-400/50 cursor-not-allowed' // Teal for vision processing
+                    : assistantState === 'listening'
+                      ? 'bg-indigo-500/20 hover:bg-indigo-500/30 border-indigo-400/50' // Purple-blue for listening
+                      : assistantState === 'greeting'
+                        ? 'bg-indigo-500/20 hover:bg-indigo-500/30 border-indigo-400/50 cursor-not-allowed' // Purple-blue for greeting
+                        : assistantState === 'processing'
+                          ? 'bg-slate-900/50 border-purple-400/30 cursor-not-allowed' // Purple for processing (disabled)
+                          : assistantState === 'speaking'
+                            ? 'bg-indigo-500/10 hover:bg-indigo-500/20 border-indigo-400/30' // Purple-blue for speaking
+                            : isFirstInteraction
+                              ? 'bg-indigo-900/20 border-indigo-400/10 cursor-not-allowed opacity-50' // Disabled state before call starts
+                              : 'bg-indigo-900/30 hover:bg-indigo-900/40 border-indigo-400/30' // Default for idle
               }
               border-2 shadow-lg backdrop-blur-md transform transition-all duration-300
               hover:scale-105
             `}
-            disabled={!isConnected || assistantState === 'processing' || assistantState === 'greeting' || 
-                    assistantState === 'vision_processing' || isFirstInteraction}
+            disabled={!isConnected || assistantState === 'processing' || assistantState === 'greeting' ||
+              assistantState === 'vision_processing' || isFirstInteraction}
           >
             <Eye className={`w-6 h-6 
               ${assistantState === 'vision_file'
                 ? 'text-sky-300' // Sky blue for vision file state
                 : assistantState === 'vision_asr'
                   ? 'text-emerald-400' // Emerald for vision ASR
-                : assistantState === 'vision_processing'
-                  ? 'text-teal-400 animate-pulse' // Teal animate for vision processing
-                  : assistantState === 'listening' 
-                    ? 'text-indigo-400' // indigo for listening
-                    : assistantState === 'greeting'
-                      ? 'text-indigo-400' // indigo for greeting
-                      : assistantState === 'processing'
-                        ? 'text-purple-400/70' // Purple for processing
-                        : assistantState === 'speaking'
-                          ? 'text-indigo-400' // indigo for speaking
-                          : 'text-sky-300' // Default for idle - matching vision_file blue/cyan
-              }`} 
+                  : assistantState === 'vision_processing'
+                    ? 'text-teal-400 animate-pulse' // Teal animate for vision processing
+                    : assistantState === 'listening'
+                      ? 'text-indigo-400' // indigo for listening
+                      : assistantState === 'greeting'
+                        ? 'text-indigo-400' // indigo for greeting
+                        : assistantState === 'processing'
+                          ? 'text-purple-400/70' // Purple for processing
+                          : assistantState === 'speaking'
+                            ? 'text-indigo-400' // indigo for speaking
+                            : 'text-sky-300' // Default for idle - matching vision_file blue/cyan
+              }`}
             />
           </button>
         )}
-        
+
         {/* Microphone button or End Call button */}
         <button
           onClick={handleMicrophoneAction}
           className={`
             p-4 rounded-full transition-all duration-300
-            ${assistantState === 'listening' 
+            ${assistantState === 'listening'
               ? 'bg-emerald-500/20 hover:bg-emerald-500/30 border-emerald-400/50' // Green for listening 
               : assistantState === 'greeting'
                 ? 'bg-blue-500/20 hover:bg-blue-500/30 border-blue-400/50 cursor-not-allowed' // Blue for greeting
@@ -918,10 +930,10 @@ const ChatInterface: React.FC = () => {
                       : 'bg-slate-900/30 hover:bg-slate-900/40 border-slate-400/30' // Default for idle
             }
             border-2 shadow-lg backdrop-blur-md transform transition-all duration-300
-            ${isFirstInteraction && assistantState === 'idle' 
+            ${isFirstInteraction && assistantState === 'idle'
               ? 'animate-color-cycle hover:scale-110 hover:border-opacity-80' // Color cycling animation for first interaction with enhanced border on hover
-              : !isFirstInteraction && assistantState === 'idle' 
-                ? 'hover:scale-110' 
+              : !isFirstInteraction && assistantState === 'idle'
+                ? 'hover:scale-110'
                 : 'hover:scale-105'
             }
           `}
@@ -930,7 +942,7 @@ const ChatInterface: React.FC = () => {
           {/* Icon changes based on first interaction */}
           {isFirstInteraction ? (
             <Phone className={`w-6 h-6 
-              ${assistantState === 'listening' 
+              ${assistantState === 'listening'
                 ? 'text-emerald-400' // Green icon for listening
                 : assistantState === 'greeting'
                   ? 'text-blue-400' // Blue icon for greeting
@@ -939,11 +951,11 @@ const ChatInterface: React.FC = () => {
                     : assistantState === 'speaking'
                       ? 'text-amber-400' // Amber icon for speaking
                       : 'text-slate-300' // Default for idle
-              }`} 
+              }`}
             />
           ) : (
             <PhoneOff className={`w-6 h-6 
-              ${assistantState === 'listening' 
+              ${assistantState === 'listening'
                 ? 'text-emerald-400' // Green icon for listening
                 : assistantState === 'greeting'
                   ? 'text-blue-400' // Blue icon for greeting
@@ -952,11 +964,11 @@ const ChatInterface: React.FC = () => {
                     : assistantState === 'speaking'
                       ? 'text-amber-400' // Amber icon for speaking
                       : 'text-red-400' // Red for idle after first interaction
-              }`} 
+              }`}
             />
           )}
         </button>
-        
+
         {/* Mute button */}
         <button
           onClick={handleMuteToggle}
@@ -980,7 +992,7 @@ const ChatInterface: React.FC = () => {
           )}
         </button>
       </div>
-      
+
       {/* Vision file upload positioned below orb */}
       {assistantState === 'vision_file' && (
         <div className="absolute bottom-32 left-1/2 -translate-x-1/2 w-full max-w-sm mx-auto z-30">
@@ -989,25 +1001,25 @@ const ChatInterface: React.FC = () => {
               <Eye className="w-5 h-5 text-sky-300" />
               <span>Select an image to analyse</span>
             </h3>
-            
-            <div 
+
+            <div
               className="border-2 border-dashed border-sky-300/30 rounded-lg p-6 text-center hover:border-sky-300/60 transition-colors cursor-pointer bg-slate-800/70"
               onClick={() => document.getElementById('vision-file-input')?.click()}
             >
               <p className="text-slate-300 mb-2">Click to browse or drag and drop</p>
               <p className="text-xs text-slate-400">Supports JPG, PNG, GIF up to 5MB</p>
             </div>
-            
-            <input 
+
+            <input
               id="vision-file-input"
               type="file"
               accept="image/*"
               className="hidden"
               onChange={handleFileSelected}
             />
-            
+
             <div className="flex justify-end mt-4 gap-3">
-              <button 
+              <button
                 onClick={() => setAssistantState('idle')}
                 className="px-4 py-2 bg-sky-300/10 hover:bg-sky-300/20 text-sky-100 rounded-md border border-sky-300/20"
               >
@@ -1017,7 +1029,7 @@ const ChatInterface: React.FC = () => {
           </div>
         </div>
       )}
-      
+
       {/* Vision processing message - positioned exactly like file upload */}
       {assistantState === 'vision_processing' && (
         <div className="absolute bottom-[175px] left-1/2 -translate-x-1/2 w-full max-w-sm mx-auto z-30">
@@ -1034,14 +1046,14 @@ const ChatInterface: React.FC = () => {
           </div>
         </div>
       )}
-      
-      
+
+
       {/* Error toast */}
       {error && (
         <div className="fixed top-4 right-4 bg-red-900/60 text-white p-3 rounded-lg shadow-lg backdrop-blur-sm max-w-xs">
           <div className="flex items-center gap-2">
             <div className="text-red-300 font-medium">Error</div>
-            <button 
+            <button
               className="ml-auto text-white/80 hover:text-white"
               onClick={() => setError(null)}
             >

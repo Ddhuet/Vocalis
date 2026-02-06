@@ -9,6 +9,7 @@ export enum MessageType {
   AUDIO = "audio",
   TRANSCRIPTION = "transcription",
   LLM_RESPONSE = "llm_response",
+  LLM_SENDING = "llm_sending",
   TTS_CHUNK = "tts_chunk",
   TTS_START = "tts_start",
   TTS_END = "tts_end",
@@ -73,6 +74,7 @@ type WebSocketEventType =
   | 'audio'
   | 'transcription'
   | 'llm_response'
+  | 'llm_sending'
   | 'tts_start'
   | 'tts_chunk'
   | 'tts_end'
@@ -327,11 +329,25 @@ export class WebSocketService {
    * Update the voice settings
    * 
    * @param aiFollowupsEnabled Whether AI-initiated followups are enabled
+   * @param wakeWordEnabled Whether wake word detection is enabled
+   * @param wakeWord The wake word to detect
+   * @param sendWordEnabled Whether send word detection is enabled
+   * @param sendWord The send word to detect
    */
-  public updateVoiceSettings(aiFollowupsEnabled: boolean): boolean {
+  public updateVoiceSettings(
+    aiFollowupsEnabled: boolean,
+    wakeWordEnabled: boolean = false,
+    wakeWord: string = 'Biscuit',
+    sendWordEnabled: boolean = false,
+    sendWord: string = 'taxi'
+  ): boolean {
     // Send explicit string type expected by backend
     return this.send("update_voice_settings" as any, {
-      ai_followups_enabled: aiFollowupsEnabled
+      ai_followups_enabled: aiFollowupsEnabled,
+      wake_word_enabled: wakeWordEnabled,
+      wake_word: wakeWord,
+      send_word_enabled: sendWordEnabled,
+      send_word: sendWord
     });
   }
 

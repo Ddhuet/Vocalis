@@ -10,6 +10,7 @@ import asyncio
 import numpy as np
 import base64
 import os
+import re
 from typing import Dict, Any, List, Optional, AsyncGenerator
 from fastapi import WebSocket, WebSocketDisconnect, BackgroundTasks
 from pydantic import BaseModel
@@ -62,6 +63,7 @@ class MessageType:
     # Voice settings message types
     VOICE_SETTINGS = "voice_settings"
     VOICE_SETTINGS_UPDATED = "voice_settings_updated"
+    LLM_SENDING = "llm_sending"  # Signals that message is actually being sent to LLM now
 
 class WebSocketManager:
     """
@@ -108,6 +110,10 @@ class WebSocketManager:
         
         # Initialize conversation storage
         self.conversation_storage = ConversationStorage()
+        
+        # Wake word / Send word state tracking
+        self.is_speaking = False  # Whether user has activated via wake word
+        self.user_message_buffer = ""  # Accumulates text when send word is enabled
         
         logger.info("Initialized WebSocket Manager")
     
@@ -295,7 +301,105 @@ class WebSocketManager:
                     "timestamp": datetime.now().isoformat()
                 })
                 return
+
+            # --- Wake Word & Send Word Logic ---
+            
+            # Get settings
+            wake_word_enabled = self.voice_settings.get("wake_word_enabled", False)
+            wake_word = self.voice_settings.get("wake_word", "Biscuit")
+            send_word_enabled = self.voice_settings.get("send_word_enabled", False)
+            send_word = self.voice_settings.get("send_word", "taxi")
+            
+            final_text_to_process = ""
+            should_process_llm = False
+            
+            # 1. Handle Wake Word
+            if wake_word_enabled and not self.is_speaking:
+                # Look for wake word (case-insensitive)
+                pattern = re.compile(re.escape(wake_word), re.IGNORECASE)
+                match = pattern.search(transcript)
                 
+                if match:
+                    logger.info(f"Wake word '{wake_word}' detected!")
+                    self.is_speaking = True
+                    # Strip everything before and including the wake word
+                    # We keep what's AFTER the wake word
+                    start_index = match.end()
+                    transcript = transcript[start_index:].strip()
+                    
+                    # If there's nothing left after the wake word, we just activate and return
+                    # The user might pause after saying the wake word
+                    if not transcript:
+                        logger.info("Wake word detected but no content following it. Waiting for next chunk.")
+                        # Send transcription update (empty or just activated indicator)
+                        await websocket.send_json({
+                            "type": MessageType.TRANSCRIPTION,
+                            "text": "Listening...",
+                            "metadata": {"wake_word_detected": True},
+                            "timestamp": datetime.now().isoformat()
+                        })
+                        return
+                else:
+                    logger.info(f"Wake word enabled but '{wake_word}' not found in: '{transcript}'")
+                    # Ignore this chunk
+                    return
+
+            # 2. Handle Send Word
+            if self.is_speaking:
+                if send_word_enabled:
+                    # Look for send word (case-insensitive)
+                    pattern = re.compile(re.escape(send_word), re.IGNORECASE)
+                    match = pattern.search(transcript)
+                    
+                    if match:
+                        logger.info(f"Send word '{send_word}' detected!")
+                        # Take everything BEFORE the send word
+                        end_index = match.start()
+                        valid_chunk = transcript[:end_index].strip()
+                        
+                        # Add to buffer
+                        if valid_chunk:
+                            self.user_message_buffer += " " + valid_chunk
+                        
+                        final_text_to_process = self.user_message_buffer.strip()
+                        self.user_message_buffer = "" # Clear buffer
+                        should_process_llm = True
+                        
+                        # Use final text for transcript update
+                        transcript = final_text_to_process
+                        
+                    else:
+                        # Send word NOT found, accumulate and wait
+                        logger.info(f"Appended to buffer: '{transcript}'")
+                        self.user_message_buffer += " " + transcript
+                        
+                        # Send updated partial transcription (buffered + current)
+                        accumulated_text = self.user_message_buffer.strip()
+                        await websocket.send_json({
+                            "type": MessageType.TRANSCRIPTION,
+                            "text": accumulated_text + "...", # Visual indicator that we're still listening
+                            "metadata": {"buffering": True},
+                            "timestamp": datetime.now().isoformat()
+                        })
+                        return
+                else:
+                    # Send word disabled - process immediately
+                    final_text_to_process = transcript
+                    should_process_llm = True
+            else:
+                # Should not happen given logic above (wake_word_enabled check handles the not speaking case)
+                return
+
+            if not should_process_llm or not final_text_to_process:
+                 logger.info("No text to process after logic applied")
+                 return
+
+            # Notify UI that we are initiating LLM request (changes 'Listening' -> 'Processing')
+            await websocket.send_json({
+                "type": MessageType.LLM_SENDING,
+                "timestamp": datetime.now().isoformat()
+            })
+
             # Check if we have recent vision context to incorporate
             has_vision_context = self.current_vision_context is not None
             
@@ -306,7 +410,7 @@ class WebSocketManager:
                 self._add_vision_context_to_conversation(self.current_vision_context)
                 
                 # Enhance user query with vision context reference
-                enhanced_transcript = f"{transcript} [Note: This question refers to the image I just analyzed.]"
+                enhanced_transcript = f"{final_text_to_process} [Note: This question refers to the image I just analyzed.]"
                 
                 # Get LLM response with vision-aware context
                 await self._send_status(websocket, "processing_llm", {"has_vision_context": True})
@@ -319,7 +423,7 @@ class WebSocketManager:
             else:
                 # Normal non-vision processing
                 await self._send_status(websocket, "processing_llm", {})
-                llm_response = self.llm_client.get_response(transcript, self.system_prompt)
+                llm_response = self.llm_client.get_response(final_text_to_process, self.system_prompt)
             
             # Send LLM response
             await websocket.send_json({
@@ -867,7 +971,15 @@ class WebSocketManager:
             elif message_type == "update_voice_settings":
                 # Update voice settings
                 ai_followups_enabled = message.get("ai_followups_enabled", False)
-                await self._handle_update_voice_settings(websocket, ai_followups_enabled)
+                wake_word_enabled = message.get("wake_word_enabled", False)
+                wake_word = message.get("wake_word", "Biscuit")
+                send_word_enabled = message.get("send_word_enabled", False)
+                send_word = message.get("send_word", "taxi")
+                await self._handle_update_voice_settings(
+                    websocket, ai_followups_enabled, 
+                    wake_word_enabled, wake_word, 
+                    send_word_enabled, send_word
+                )
                 
             # Session management handlers
             elif message_type == MessageType.SAVE_SESSION:
@@ -1090,7 +1202,11 @@ class WebSocketManager:
             Dict[str, Any]: The voice settings
         """
         default_settings = {
-            "ai_followups_enabled": False
+            "ai_followups_enabled": False,
+            "wake_word_enabled": False,
+            "wake_word": "Biscuit",
+            "send_word_enabled": False,
+            "send_word": "taxi"
         }
         
         try:
@@ -1141,6 +1257,10 @@ class WebSocketManager:
             await websocket.send_json({
                 "type": MessageType.VOICE_SETTINGS,
                 "ai_followups_enabled": self.voice_settings.get("ai_followups_enabled", False),
+                "wake_word_enabled": self.voice_settings.get("wake_word_enabled", False),
+                "wake_word": self.voice_settings.get("wake_word", "Biscuit"),
+                "send_word_enabled": self.voice_settings.get("send_word_enabled", False),
+                "send_word": self.voice_settings.get("send_word", "taxi"),
                 "timestamp": datetime.now().isoformat()
             })
             logger.info("Sent voice settings to client")
@@ -1148,17 +1268,42 @@ class WebSocketManager:
             logger.error(f"Error sending voice settings: {e}")
             await self._send_error(websocket, f"Error sending voice settings: {str(e)}")
     
-    async def _handle_update_voice_settings(self, websocket: WebSocket, ai_followups_enabled: bool):
+    async def _handle_update_voice_settings(
+        self, 
+        websocket: WebSocket, 
+        ai_followups_enabled: bool,
+        wake_word_enabled: bool = False,
+        wake_word: str = "Biscuit",
+        send_word_enabled: bool = False,
+        send_word: str = "taxi"
+    ):
         """
         Update the voice settings.
         
         Args:
             websocket: The WebSocket connection
             ai_followups_enabled: Whether AI-initiated followups are enabled
+            wake_word_enabled: Whether wake word detection is enabled
+            wake_word: The wake word to detect
+            send_word_enabled: Whether send word detection is enabled
+            send_word: The send word to detect
         """
         try:
             # Update in memory
             self.voice_settings["ai_followups_enabled"] = ai_followups_enabled
+            self.voice_settings["wake_word_enabled"] = wake_word_enabled
+            self.voice_settings["wake_word"] = wake_word
+            self.voice_settings["send_word_enabled"] = send_word_enabled
+            self.voice_settings["send_word"] = send_word
+            
+            # Reset speaking state when settings change
+            if not wake_word_enabled:
+                self.is_speaking = True  # Default to speaking if wake word disabled
+            else:
+                self.is_speaking = False  # Require wake word activation
+            
+            # Clear message buffer when settings change
+            self.user_message_buffer = ""
             
             # Save to file
             success = self._save_voice_settings()
@@ -1170,7 +1315,7 @@ class WebSocketManager:
                 "timestamp": datetime.now().isoformat()
             })
             
-            logger.info(f"Updated voice settings: ai_followups_enabled={ai_followups_enabled}")
+            logger.info(f"Updated voice settings: ai_followups={ai_followups_enabled}, wake_word={wake_word_enabled}/{wake_word}, send_word={send_word_enabled}/{send_word}")
         except Exception as e:
             logger.error(f"Error updating voice settings: {e}")
             await self._send_error(websocket, f"Error updating voice settings: {str(e)}")
