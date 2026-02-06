@@ -273,15 +273,19 @@ These files are auto-created with defaults if missing.
 ### Normal Conversation Flow
 
 1. **Client** captures audio via Web Audio API
-2. **Client** sends binary audio data via WebSocket (`AUDIO` message)
-3. **Server** (WebSocketManager) receives audio, interrupts any playing TTS
-4. **Server** calls `WhisperTranscriber.transcribe()` -> returns text
-5. **Server** sends `TRANSCRIPTION` message to client
-6. **Server** calls `LLMClient.get_response()` with transcribed text
-7. **Server** sends `LLM_RESPONSE` message to client
-8. **Server** calls `TTSClient.async_text_to_speech()` -> returns audio bytes
-9. **Server** sends `TTS_START`, then `TTS_CHUNK` (base64 audio), then `TTS_END`
-10. **Client** plays audio via Web Audio API
+2. **Client** performs Voice Activity Detection (VAD) using RMS energy threshold (0.01)
+3. **Client** buffers audio while voice is detected; after 1000ms silence timeout, sends accumulated audio
+4. **Client** sends binary audio data via WebSocket (`AUDIO` message)
+5. **Server** (WebSocketManager) receives audio, interrupts any playing TTS
+6. **Server** calls `WhisperTranscriber.transcribe()` -> returns text
+7. **Server** sends `TRANSCRIPTION` message to client
+8. **Server** calls `LLMClient.get_response()` with transcribed text
+9. **Server** sends `LLM_RESPONSE` message to client
+10. **Server** calls `TTSClient.async_text_to_speech()` -> returns audio bytes
+11. **Server** sends `TTS_START`, then `TTS_CHUNK` (base64 audio), then `TTS_END`
+12. **Client** plays audio via Web Audio API
+
+**Voice Activity Detection**: Located in `frontend/src/services/audio.ts`. Uses real-time RMS energy analysis to detect speech start/stop. Configurable: `voiceThreshold` (0.01), `silenceTimeout` (1000ms), `minRecordingLength` (1000ms).
 
 ### Barge-In / Interruption Flow
 
