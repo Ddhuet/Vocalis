@@ -112,7 +112,11 @@ class WebSocketManager:
         self.conversation_storage = ConversationStorage()
         
         # Wake word / Send word state tracking
-        self.is_speaking = False  # Whether user has activated via wake word
+        # Wake word / Send word state tracking
+        # If wake word is disabled, we default to "speaking" (always listening)
+        # If enabled, we start as "not speaking" (waiting for wake word)
+        self.is_speaking = not self.voice_settings.get("wake_word_enabled", False)
+        logger.info(f"Initial speaking state: {self.is_speaking} (Wake word enabled: {self.voice_settings.get('wake_word_enabled', False)})")
         self.user_message_buffer = ""  # Accumulates text when send word is enabled
         
         logger.info("Initialized WebSocket Manager")
@@ -313,7 +317,11 @@ class WebSocketManager:
             final_text_to_process = ""
             should_process_llm = False
             
+            # Log current state for debugging
+            logger.debug(f"Speech processing state: wake_enabled={wake_word_enabled}, is_speaking={self.is_speaking}, send_enabled={send_word_enabled}")
+            
             # 1. Handle Wake Word
+            # If wake word is enabled and we are not yet speaking, we look for it.
             if wake_word_enabled and not self.is_speaking:
                 # Look for wake word (case-insensitive)
                 pattern = re.compile(re.escape(wake_word), re.IGNORECASE)
@@ -322,6 +330,9 @@ class WebSocketManager:
                 if match:
                     logger.info(f"Wake word '{wake_word}' detected!")
                     self.is_speaking = True
+                    # Clear any stale buffer when starting a new session
+                    self.user_message_buffer = ""
+                    
                     # Strip everything before and including the wake word
                     # We keep what's AFTER the wake word
                     start_index = match.end()
@@ -341,10 +352,10 @@ class WebSocketManager:
                         return
                 else:
                     logger.info(f"Wake word enabled but '{wake_word}' not found in: '{transcript}'")
-                    # Ignore this chunk
+                    # Ignore this chunk completely
                     return
 
-            # 2. Handle Send Word
+            # 2. Handle Send Word (or immediate processing if disabled)
             if self.is_speaking:
                 if send_word_enabled:
                     # Look for send word (case-insensitive)
@@ -364,6 +375,11 @@ class WebSocketManager:
                         final_text_to_process = self.user_message_buffer.strip()
                         self.user_message_buffer = "" # Clear buffer
                         should_process_llm = True
+                        
+                        # Reset speaking state if wake word is required for each message
+                        # This prevents "See ya John" from being processed in the next turn
+                        if wake_word_enabled:
+                            self.is_speaking = False
                         
                         # Use final text for transcript update
                         transcript = final_text_to_process
@@ -386,6 +402,10 @@ class WebSocketManager:
                     # Send word disabled - process immediately
                     final_text_to_process = transcript
                     should_process_llm = True
+                    
+                    # Reset speaking state if wake word is required for each message
+                    if wake_word_enabled:
+                         self.is_speaking = False
             else:
                 # Should not happen given logic above (wake_word_enabled check handles the not speaking case)
                 return
