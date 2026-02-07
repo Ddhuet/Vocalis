@@ -10,14 +10,18 @@ export default defineConfig({
     proxy: {
       // Proxy WebSocket connections to backend
       '/ws': {
-        target: 'ws://localhost:8000',
+        target: 'ws://localhost:7744',
         ws: true,
       },
       // Proxy REST API calls to backend
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://localhost:7744',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+      // Proxy health endpoint
+      '/health': {
+        target: 'http://localhost:7744',
+        changeOrigin: true,
       },
     },
   },

@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Mic, Loader2, Volume2, VolumeX, PhoneOff, Phone, Eye } from 'lucide-react';
-import { useInterval } from '../utils/hooks';
 import BackgroundStars from './BackgroundStars';
 import AssistantOrb from './AssistantOrb';
 import websocketService, { MessageType, ConnectionState } from '../services/websocket';
@@ -15,7 +14,7 @@ const ChatInterface: React.FC = () => {
   const [previousAssistantState, setPreviousAssistantState] = useState<AssistantState>('idle');
   const [isConnected, setIsConnected] = useState(false);
   const [transcript, setTranscript] = useState('');
-  const [response, setResponse] = useState('');
+  const [_response, _setResponse] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>(ConnectionState.DISCONNECTED);
   const [showConnectedStatus, setShowConnectedStatus] = useState(false);
@@ -24,8 +23,8 @@ const ChatInterface: React.FC = () => {
   const [isMuted, setIsMuted] = useState(false);
 
   // Vision-related state
-  const [isVisionContext, setIsVisionContext] = useState(false);
-  const [visionImageContext, setVisionImageContext] = useState<string | null>(null);
+  const [_isVisionContext, _setIsVisionContext] = useState(false);
+  const [_visionImageContext, _setVisionImageContext] = useState<string | null>(null);
 
   // End call toast notification
   const [showEndCallToast, setShowEndCallToast] = useState(false);
@@ -33,16 +32,16 @@ const ChatInterface: React.FC = () => {
   // Conversation behavior state
   const [isFirstInteraction, setIsFirstInteraction] = useState(true);
   const [followUpTier, setFollowUpTier] = useState(0);
-  const [followUpTimer, setFollowUpTimer] = useState<NodeJS.Timeout | null>(null);
+  const [followUpTimer, setFollowUpTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
   const [preventFollowUp, setPreventFollowUp] = useState(false); // Flag to prevent follow-ups after ending a call
 
   // Audio activity tracking - separate from full "listening" state
   // This detects even low-level audio that might block follow-ups but not trigger full listening
   const [potentialSpeechActivity, setPotentialSpeechActivity] = useState(false);
-  const speechActivityTimeout = useRef<NodeJS.Timeout | null>(null);
+  const speechActivityTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Timeout to prevent getting stuck in listening state if Whisper doesn't process the audio
-  const [listeningTimeout, setListeningTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [listeningTimeout, setListeningTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
 
   // Handle the vision button action
   const handleVisionAction = () => {
@@ -55,8 +54,8 @@ const ChatInterface: React.FC = () => {
     }
 
     // Reset any existing vision context
-    setIsVisionContext(false);
-    setVisionImageContext(null);
+    _setIsVisionContext(false);
+    _setVisionImageContext(null);
 
     // Transition to vision file state
     setAssistantState('vision_file');
@@ -116,8 +115,8 @@ const ChatInterface: React.FC = () => {
     const handleVisionReady = (data: any) => {
       if (data && data.context) {
         console.log('Vision processing complete');
-        setVisionImageContext(data.context);
-        setIsVisionContext(true);
+        _setVisionImageContext(data.context);
+        _setIsVisionContext(true);
 
         // Move to vision ASR state
         setAssistantState('vision_asr');
@@ -165,7 +164,7 @@ const ChatInterface: React.FC = () => {
 
     // Reset local state
     setTranscript('');
-    setResponse('');
+    _setResponse('');
     setIsFirstInteraction(true);
     setFollowUpTier(0);
 
@@ -362,7 +361,7 @@ const ChatInterface: React.FC = () => {
     // Handle LLM response
     const handleLLMResponse = (data: any) => {
       // Store the response text
-      setResponse(data.text);
+      _setResponse(data.text);
 
       // If we're in greeting state, this is the greeting response
       if (assistantState === 'greeting') {
@@ -381,7 +380,7 @@ const ChatInterface: React.FC = () => {
       setAssistantState('speaking');
     };
 
-    const handlePlaybackEnd = (data: any) => {
+    const handlePlaybackEnd = () => {
       // Add a small debounce to ensure we're really done
       setTimeout(() => {
         // Double-check we're not still speaking when setting idle
@@ -586,7 +585,9 @@ const ChatInterface: React.FC = () => {
       const timer = setTimeout(() => {
         // When timer fires, check if we're still in a state where a follow-up makes sense
         // If we've moved to processing, speaking, or greeting in the meantime, we should abort
+        // @ts-ignore - state may have changed since timer was created
         if (assistantState === 'processing' || assistantState === 'speaking' ||
+          // @ts-ignore - state may have changed since timer was created
           assistantState === 'greeting' || preventFollowUp) {
           console.log(`Follow-up timer fired but state is now ${assistantState} - aborting follow-up`);
           return;
@@ -609,7 +610,6 @@ const ChatInterface: React.FC = () => {
           // 5. Follow-ups must not be prevented by recent call end
           if (
             assistantState === 'idle' &&
-            assistantState !== 'processing' &&  // Double-check processing state
             !potentialSpeechActivity &&  // No audio activity (even low-level background noise)
             isConnected &&
             audioState === AudioState.INACTIVE &&

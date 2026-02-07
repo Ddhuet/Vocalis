@@ -1,15 +1,23 @@
 @echo off
-echo === Starting Vocalis ===
+echo === Building Vocalis Frontend ===
 
-:: Start backend in a new window
+cd frontend
+call npm run build
+if errorlevel 1 (
+    echo Failed to build frontend. Make sure npm dependencies are installed.
+    exit /b 1
+)
+cd ..
+
+echo === Frontend built successfully ===
+echo === Starting Vocalis Server ===
+
+REM Load environment variables from backend\.env
+for /f "usebackq tokens=1,* delims==" %%a in (`type backend\.env ^| findstr /v "^#" ^| findstr /v "^$"`) do set "%%a=%%b"
+
+REM Start server (backend serves frontend on the same port)
 start cmd /k "call .\env\Scripts\activate && python -m backend.main"
 
-:: Wait a moment for backend to initialize
-timeout /t 2 /nobreak > nul
-
-:: Start frontend in a new window
-start cmd /k "cd frontend && npm run dev"
-
-echo === Vocalis servers started ===
-echo Frontend: http://localhost:5173 (or your Vite port)
-echo Backend: http://localhost:8000 (or your FastAPI port)
+echo === Vocalis server started ===
+echo Access the app at: http://%SERVER_HOST%:%SERVER_PORT%
+echo Server is listening on: %SERVER_HOST%:%SERVER_PORT%

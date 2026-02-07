@@ -12,28 +12,37 @@ from typing import Dict, Any
 # Load environment variables from .env file
 load_dotenv()
 
+
+def _getenv(key: str, default=None):
+    """Get environment variable value, stripping inline comments."""
+    value = os.getenv(key, default)
+    if value and isinstance(value, str):
+        # Strip inline comments (everything after #)
+        value = value.split('#')[0].strip()
+    return value if value else default
+
 # API Endpoints
-LLM_API_ENDPOINT = os.getenv("LLM_API_ENDPOINT", "http://127.0.0.1:1234/v1")
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_MODEL = os.getenv("LLM_MODEL", "")
-TTS_API_ENDPOINT = os.getenv("TTS_API_ENDPOINT", "http://localhost:5005/v1/audio/speech")
+LLM_API_ENDPOINT = _getenv("LLM_API_ENDPOINT", "http://127.0.0.1:1234/v1")
+LLM_API_KEY = _getenv("LLM_API_KEY", "")
+LLM_MODEL = _getenv("LLM_MODEL", "")
+TTS_API_ENDPOINT = _getenv("TTS_API_ENDPOINT", "http://localhost:5005/v1/audio/speech")
 
 # Whisper Model Configuration
-WHISPER_MODEL = os.getenv("WHISPER_MODEL", "tiny.en")
+WHISPER_MODEL = _getenv("WHISPER_MODEL", "tiny.en")
 
 # TTS Configuration
-TTS_MODEL = os.getenv("TTS_MODEL", "tts-1")
-TTS_VOICE = os.getenv("TTS_VOICE", "tara")
-TTS_FORMAT = os.getenv("TTS_FORMAT", "wav")
+TTS_MODEL = _getenv("TTS_MODEL", "tts-1")
+TTS_VOICE = _getenv("TTS_VOICE", "tara")
+TTS_FORMAT = _getenv("TTS_FORMAT", "wav")
 
-# WebSocket Server Configuration
-WEBSOCKET_HOST = os.getenv("WEBSOCKET_HOST", "0.0.0.0")
-WEBSOCKET_PORT = int(os.getenv("WEBSOCKET_PORT", 8000))
+# Web Server Configuration (HTTP + WebSocket on same port)
+SERVER_HOST = _getenv("SERVER_HOST", "0.0.0.0")
+SERVER_PORT = int(_getenv("SERVER_PORT", 7744))
 
 # Audio Processing
-VAD_THRESHOLD = float(os.getenv("VAD_THRESHOLD", 0.5))
-VAD_BUFFER_SIZE = int(os.getenv("VAD_BUFFER_SIZE", 30))
-AUDIO_SAMPLE_RATE = int(os.getenv("AUDIO_SAMPLE_RATE", 48000))
+VAD_THRESHOLD = float(_getenv("VAD_THRESHOLD", 0.5))
+VAD_BUFFER_SIZE = int(_getenv("VAD_BUFFER_SIZE", 30))
+AUDIO_SAMPLE_RATE = int(_getenv("AUDIO_SAMPLE_RATE", 48000))
 
 def get_config() -> Dict[str, Any]:
     """
@@ -51,8 +60,8 @@ def get_config() -> Dict[str, Any]:
         "tts_model": TTS_MODEL,
         "tts_voice": TTS_VOICE,
         "tts_format": TTS_FORMAT,
-        "websocket_host": WEBSOCKET_HOST,
-        "websocket_port": WEBSOCKET_PORT,
+        "server_host": SERVER_HOST,
+        "server_port": SERVER_PORT,
         "vad_threshold": VAD_THRESHOLD,
         "vad_buffer_size": VAD_BUFFER_SIZE,
         "audio_sample_rate": AUDIO_SAMPLE_RATE,

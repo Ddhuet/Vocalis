@@ -8,7 +8,10 @@ import logging
 import uvicorn
 from fastapi import FastAPI, WebSocket, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
+import os
 
 # Import configuration
 from . import config
@@ -112,10 +115,11 @@ def get_llm_service():
 def get_tts_service():
     return tts_service
 
-# API routes
-@app.get("/")
-async def root():
-    """Root endpoint for health check."""
+# API routes - only active when frontend is not built
+# When frontend is built, the catch-all route below will serve index.html
+@app.get("/api/health")
+async def api_health_check():
+    """API health check endpoint."""
     return {"status": "ok", "message": "Vocalis backend is running"}
 
 @app.get("/health")
@@ -132,7 +136,7 @@ async def health_check():
         "config": {
             "whisper_model": config.WHISPER_MODEL,
             "tts_voice": config.TTS_VOICE,
-            "websocket_port": config.WEBSOCKET_PORT
+            "server_port": config.SERVER_PORT
         }
     }
 
@@ -160,11 +164,29 @@ async def websocket_route(websocket: WebSocket):
         tts_service
     )
 
+# Static files serving - mount the frontend build directory
+# This allows the backend to serve the frontend on the same port
+static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+if os.path.exists(static_dir):
+    app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        """Serve the SPA index.html for all non-API routes."""
+        # Don't serve index.html for API and WebSocket routes
+        if full_path.startswith("api") or full_path.startswith("ws") or full_path.startswith("health"):
+            raise HTTPException(status_code=404, detail="Not Found")
+
+        index_path = os.path.join(static_dir, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+        return {"detail": "Frontend not built. Run 'npm run build' in the frontend directory."}
+
 # Run server directly if executed as script
 if __name__ == "__main__":
     uvicorn.run(
         "backend.main:app",
-        host=config.WEBSOCKET_HOST,
-        port=config.WEBSOCKET_PORT,
+        host=config.SERVER_HOST,
+        port=config.SERVER_PORT,
         reload=False
     )

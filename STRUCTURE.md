@@ -244,9 +244,9 @@ TTS_MODEL=tts-1
 TTS_VOICE=tara
 TTS_FORMAT=wav
 
-# Server Configuration
-WEBSOCKET_HOST=0.0.0.0
-WEBSOCKET_PORT=8000
+# Web Server Configuration
+SERVER_HOST=0.0.0.0
+SERVER_PORT=7744
 
 # Audio Processing
 VAD_THRESHOLD=0.1
@@ -362,7 +362,7 @@ chmod +x *.sh
 
 ```bash
 # Windows
-run.bat        # Starts both backend (port 8000) and frontend (port 5173)
+run.bat        # Builds frontend and starts unified server on port 7744
 
 # macOS/Linux
 ./run.sh
@@ -371,13 +371,17 @@ run.bat        # Starts both backend (port 8000) and frontend (port 5173)
 ### Manual Development
 
 ```bash
-# Terminal 1 - Backend
+# Build frontend and run unified server (production mode)
+cd frontend && npm run build && cd ..
 cd backend
 python -m backend.main
 
-# Terminal 2 - Frontend
-cd frontend
-npm run dev
+# Or for development with hot reload (separate terminals):
+# Terminal 1 - Backend
+cd backend && python -m backend.main
+
+# Terminal 2 - Frontend dev server with proxy
+cd frontend && npm run dev
 ```
 
 ---
@@ -454,7 +458,7 @@ npm run dev
 
 ### Health Check
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:7744/health
 ```
 
 Returns status of all services and configuration.

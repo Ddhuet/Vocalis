@@ -4,7 +4,7 @@
  * Handles audio recording, processing, and playback
  */
 
-import websocketService, { WebSocketService, MessageType } from './websocket';
+import websocketService, { WebSocketService } from './websocket';
 
 // Audio configuration
 interface AudioConfig {
@@ -60,7 +60,6 @@ export class AudioService {
   private mediaStreamSource: MediaStreamAudioSourceNode | null = null;
   private scriptProcessor: ScriptProcessorNode | null = null;
   private recordingIntervalId: number | null = null;
-  private recordingInterval: number = 100; // ms
   private audioBuffer: Float32Array[] = [];
   private audioState: AudioState = AudioState.INACTIVE;
   private eventListeners: Map<AudioEvent, AudioEventListener[]> = new Map();
@@ -490,7 +489,7 @@ export class AudioService {
    * This method is specifically for playing TTS content and will
    * set the state to SPEAKING rather than just PLAYING.
    */
-  public async playAudioChunk(base64AudioChunk: string, format: string = 'wav'): Promise<void> {
+  public async playAudioChunk(base64AudioChunk: string, _format: string = 'wav'): Promise<void> {
     try {
       await this.initAudioContext();
       

@@ -128,11 +128,18 @@ export class WebSocketService {
   private isInGreetingFlow: boolean = false;
 
   constructor(
-    url: string = 'ws://localhost:8000/ws',
+    url: string | null = null,
     autoReconnect: boolean = true,
     reconnectInterval: number = 3000,
     maxReconnectAttempts: number = 5
   ) {
+    // If no URL provided, construct from current window location
+    // This allows the app to work regardless of which host/port it's served from
+    if (!url) {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      url = `${protocol}//${host}/ws`;
+    }
     this.url = url;
     this.autoReconnect = autoReconnect;
     this.reconnectInterval = reconnectInterval;
