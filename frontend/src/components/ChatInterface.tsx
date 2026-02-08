@@ -446,6 +446,22 @@ const ChatInterface: React.FC = () => {
       setAssistantState('idle');
     });
 
+    // Handle TTS start - log for debugging
+    const handleTTSStart = () => {
+      console.log('TTS_START received from backend');
+    };
+
+    // Handle TTS end - log for debugging and ensure state cleanup
+    const handleTTSEnd = () => {
+      console.log('TTS_END received from backend');
+      // Only reset state if we're still in speaking state and audio is not playing
+      // This prevents race conditions where TTS_END arrives before PLAYBACK_END
+      if (assistantState === 'speaking' && !audioService.isCurrentlySpeaking()) {
+        console.log('TTS_END received with no audio playing, resetting to idle');
+        setAssistantState('idle');
+      }
+    };
+
     // Handle TTS audio chunks
     const handleTTSChunk = (data: any) => {
       if (data.audio_chunk) {
@@ -454,6 +470,8 @@ const ChatInterface: React.FC = () => {
       }
     };
 
+    websocketService.addEventListener('tts_start', handleTTSStart);
+    websocketService.addEventListener('tts_end', handleTTSEnd);
     websocketService.addEventListener('tts_chunk', handleTTSChunk);
 
     // Check connection state immediately
@@ -468,6 +486,8 @@ const ChatInterface: React.FC = () => {
       websocketService.removeEventListener('llm_response', handleLLMResponse);
       websocketService.removeEventListener('llm_sending', handleLLMSending);
       websocketService.removeEventListener('error', handleError);
+      websocketService.removeEventListener('tts_start', handleTTSStart);
+      websocketService.removeEventListener('tts_end', handleTTSEnd);
       websocketService.removeEventListener('tts_chunk', handleTTSChunk);
 
       // Remove raw audio data listener

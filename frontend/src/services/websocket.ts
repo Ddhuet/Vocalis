@@ -334,19 +334,21 @@ export class WebSocketService {
 
   /**
    * Update the voice settings
-   * 
+   *
    * @param aiFollowupsEnabled Whether AI-initiated followups are enabled
    * @param wakeWordEnabled Whether wake word detection is enabled
    * @param wakeWord The wake word to detect
    * @param sendWordEnabled Whether send word detection is enabled
    * @param sendWord The send word to detect
+   * @param userInterruptEnabled Whether users can interrupt TTS playback
    */
   public updateVoiceSettings(
     aiFollowupsEnabled: boolean,
     wakeWordEnabled: boolean = false,
     wakeWord: string = 'Biscuit',
     sendWordEnabled: boolean = false,
-    sendWord: string = 'taxi'
+    sendWord: string = 'taxi',
+    userInterruptEnabled: boolean = false
   ): boolean {
     // Send explicit string type expected by backend
     return this.send("update_voice_settings" as any, {
@@ -354,7 +356,8 @@ export class WebSocketService {
       wake_word_enabled: wakeWordEnabled,
       wake_word: wakeWord,
       send_word_enabled: sendWordEnabled,
-      send_word: sendWord
+      send_word: sendWord,
+      user_interrupt_enabled: userInterruptEnabled
     });
   }
 

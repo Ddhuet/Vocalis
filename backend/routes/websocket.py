@@ -96,6 +96,10 @@ class WebSocketManager:
         self.interrupt_playback = asyncio.Event()
         self.current_vision_context = None  # Store the latest vision context
         
+        # TTS state tracking to prevent race conditions
+        self.tts_generation_in_progress = False
+        self.tts_audio_sent = False
+        
         # File paths
         self.prompt_path = os.path.join("prompts", "system_prompt.md")
         self.profile_path = os.path.join("prompts", "user_profile.json")
@@ -236,8 +240,9 @@ class WebSocketManager:
             audio_array = np.frombuffer(audio_data, dtype=np.uint8)
             
             # Interrupt any ongoing TTS playback
-            if self.tts_client.is_processing:
-                logger.info("Interrupting TTS playback due to new speech")
+            # Only interrupt if audio has actually been sent (is playing), not during generation
+            if self.tts_client.is_processing and self.tts_audio_sent:
+                logger.info("Interrupting TTS playback due to new speech (audio already playing)")
                 self.interrupt_playback.set()
                 
                 # Let any current processing finish before starting new
@@ -246,6 +251,8 @@ class WebSocketManager:
                         await self.current_audio_task
                     except asyncio.CancelledError:
                         logger.info("Previous audio task cancelled")
+            elif self.tts_generation_in_progress:
+                logger.info("TTS generation in progress, will not interrupt (waiting for completion)")
             
             # Process the audio segment in a background task
             # Whisper will handle voice activity detection internally
@@ -273,7 +280,14 @@ class WebSocketManager:
         try:
             # Set processing flag
             self.is_processing = True
-            self.interrupt_playback.clear()
+            
+            # Only clear interrupt flag if TTS is not currently playing
+            # This preserves interrupt requests that came in while TTS was playing
+            if not self.tts_audio_sent:
+                self.interrupt_playback.clear()
+                logger.debug("Cleared interrupt flag at start of processing")
+            else:
+                logger.debug("Preserving interrupt flag - TTS audio is currently playing")
             
             # Transcribe speech
             await self._send_status(websocket, "transcribing", {})
@@ -465,6 +479,10 @@ class WebSocketManager:
             logger.info("Empty text for TTS, skipping")
             return
         
+        # Reset TTS state flags
+        self.tts_generation_in_progress = True
+        self.tts_audio_sent = False
+        
         try:
             # Signal TTS start
             await websocket.send_json({
@@ -477,10 +495,27 @@ class WebSocketManager:
             # Get the complete audio file
             audio_data = await self.tts_client.async_text_to_speech(text)
             
-            # Check if playback should be interrupted
+            # Check if playback should be interrupted BEFORE sending audio
             if self.interrupt_playback.is_set():
-                logger.info("TTS generation interrupted")
+                logger.info("TTS generation completed but interrupt was requested - not sending audio")
                 return
+            
+            # Mark that we're about to send audio (playback starting)
+            self.tts_generation_in_progress = False
+            self.tts_audio_sent = True
+            
+            # Clear interrupt flag now that audio is starting to play
+            self.interrupt_playback.clear()
+            
+            # If user interrupts are disabled, clear any partial input and reset wake word state
+            # This forces the user to restart their input from scratch after TTS starts
+            if not self.voice_settings.get("user_interrupt_enabled", False):
+                if self.user_message_buffer:
+                    logger.info(f"User interrupts disabled - clearing message buffer: '{self.user_message_buffer}'")
+                    self.user_message_buffer = ""
+                if self.voice_settings.get("wake_word_enabled", False) and self.is_speaking:
+                    logger.info("User interrupts disabled - resetting is_speaking state (wake word required again)")
+                    self.is_speaking = False
             
             # Encode and send the complete audio file
             encoded_audio = base64.b64encode(audio_data).decode("utf-8")
@@ -491,16 +526,24 @@ class WebSocketManager:
                 "timestamp": datetime.now().isoformat()
             })
             
-            # Signal TTS end
-            if not self.interrupt_playback.is_set():
-                await websocket.send_json({
-                    "type": MessageType.TTS_END,
-                    "timestamp": datetime.now().isoformat()
-                })
+            logger.info(f"TTS audio sent: {len(audio_data)} bytes")
             
         except Exception as e:
             logger.error(f"Error streaming TTS: {e}")
             await self._send_error(websocket, f"TTS streaming error: {str(e)}")
+        finally:
+            # ALWAYS send TTS_END to ensure UI cleanup, regardless of success/failure/interrupt
+            try:
+                await websocket.send_json({
+                    "type": MessageType.TTS_END,
+                    "timestamp": datetime.now().isoformat()
+                })
+            except Exception as end_error:
+                logger.warning(f"Failed to send TTS_END: {end_error}")
+            
+            # Reset flags
+            self.tts_generation_in_progress = False
+            self.tts_audio_sent = False
     
     def _load_user_profile(self) -> Dict[str, Any]:
         """
@@ -1002,10 +1045,12 @@ class WebSocketManager:
                 wake_word = message.get("wake_word", "Biscuit")
                 send_word_enabled = message.get("send_word_enabled", False)
                 send_word = message.get("send_word", "taxi")
+                user_interrupt_enabled = message.get("user_interrupt_enabled", False)
                 await self._handle_update_voice_settings(
-                    websocket, ai_followups_enabled, 
-                    wake_word_enabled, wake_word, 
-                    send_word_enabled, send_word
+                    websocket, ai_followups_enabled,
+                    wake_word_enabled, wake_word,
+                    send_word_enabled, send_word,
+                    user_interrupt_enabled
                 )
                 
             # Session management handlers
@@ -1233,7 +1278,8 @@ class WebSocketManager:
             "wake_word_enabled": False,
             "wake_word": "Biscuit",
             "send_word_enabled": False,
-            "send_word": "taxi"
+            "send_word": "taxi",
+            "user_interrupt_enabled": False
         }
         
         try:
@@ -1288,6 +1334,7 @@ class WebSocketManager:
                 "wake_word": self.voice_settings.get("wake_word", "Biscuit"),
                 "send_word_enabled": self.voice_settings.get("send_word_enabled", False),
                 "send_word": self.voice_settings.get("send_word", "taxi"),
+                "user_interrupt_enabled": self.voice_settings.get("user_interrupt_enabled", False),
                 "timestamp": datetime.now().isoformat()
             })
             logger.info("Sent voice settings to client")
@@ -1296,17 +1343,18 @@ class WebSocketManager:
             await self._send_error(websocket, f"Error sending voice settings: {str(e)}")
     
     async def _handle_update_voice_settings(
-        self, 
-        websocket: WebSocket, 
+        self,
+        websocket: WebSocket,
         ai_followups_enabled: bool,
         wake_word_enabled: bool = False,
         wake_word: str = "Biscuit",
         send_word_enabled: bool = False,
-        send_word: str = "taxi"
+        send_word: str = "taxi",
+        user_interrupt_enabled: bool = False
     ):
         """
         Update the voice settings.
-        
+
         Args:
             websocket: The WebSocket connection
             ai_followups_enabled: Whether AI-initiated followups are enabled
@@ -1314,6 +1362,7 @@ class WebSocketManager:
             wake_word: The wake word to detect
             send_word_enabled: Whether send word detection is enabled
             send_word: The send word to detect
+            user_interrupt_enabled: Whether users can interrupt TTS playback
         """
         try:
             # Update in memory
@@ -1322,27 +1371,28 @@ class WebSocketManager:
             self.voice_settings["wake_word"] = wake_word
             self.voice_settings["send_word_enabled"] = send_word_enabled
             self.voice_settings["send_word"] = send_word
-            
+            self.voice_settings["user_interrupt_enabled"] = user_interrupt_enabled
+
             # Reset speaking state when settings change
             if not wake_word_enabled:
                 self.is_speaking = True  # Default to speaking if wake word disabled
             else:
                 self.is_speaking = False  # Require wake word activation
-            
+
             # Clear message buffer when settings change
             self.user_message_buffer = ""
-            
+
             # Save to file
             success = self._save_voice_settings()
-            
+
             # Send confirmation
             await websocket.send_json({
                 "type": MessageType.VOICE_SETTINGS_UPDATED,
                 "success": success,
                 "timestamp": datetime.now().isoformat()
             })
-            
-            logger.info(f"Updated voice settings: ai_followups={ai_followups_enabled}, wake_word={wake_word_enabled}/{wake_word}, send_word={send_word_enabled}/{send_word}")
+
+            logger.info(f"Updated voice settings: ai_followups={ai_followups_enabled}, wake_word={wake_word_enabled}/{wake_word}, send_word={send_word_enabled}/{send_word}, user_interrupt={user_interrupt_enabled}")
         except Exception as e:
             logger.error(f"Error updating voice settings: {e}")
             await self._send_error(websocket, f"Error updating voice settings: {str(e)}")

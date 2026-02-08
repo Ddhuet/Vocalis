@@ -20,6 +20,7 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
   const [isSendWordEnabled, setIsSendWordEnabled] = useState(false);
   const [sendWord, setSendWord] = useState('taxi');
   const [isAiFollowupsEnabled, setIsAiFollowupsEnabled] = useState(false);
+  const [isUserInterruptEnabled, setIsUserInterruptEnabled] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -52,6 +53,7 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
           if (data.wake_word !== undefined) setWakeWord(data.wake_word);
           if (data.send_word_enabled !== undefined) setIsSendWordEnabled(data.send_word_enabled);
           if (data.send_word !== undefined) setSendWord(data.send_word);
+          if (data.user_interrupt_enabled !== undefined) setIsUserInterruptEnabled(data.user_interrupt_enabled);
         }
       };
 
@@ -180,7 +182,8 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
       isWakeWordEnabled,
       wakeWord,
       isSendWordEnabled,
-      sendWord
+      sendWord,
+      isUserInterruptEnabled
     );
   };
 
@@ -308,6 +311,28 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
         </div>
         <p className="text-xs text-slate-400">
           When enabled, Vocalis will occasionally speak on its own if you go silent during a conversation.
+        </p>
+      </div>
+
+      <div className="space-y-2 pt-2 border-t border-slate-700/50">
+        <label className="text-sm font-medium text-slate-300">Allow User Interrupts</label>
+        <div className="flex items-center">
+          <div
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isUserInterruptEnabled ? 'bg-emerald-600' : 'bg-slate-700'
+              }`}
+            onClick={() => setIsUserInterruptEnabled(!isUserInterruptEnabled)}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isUserInterruptEnabled ? 'translate-x-6' : 'translate-x-1'
+                }`}
+            />
+          </div>
+          <span className="ml-3 text-sm text-slate-300">
+            {isUserInterruptEnabled ? 'Enabled' : 'Disabled'}
+          </span>
+        </div>
+        <p className="text-xs text-slate-400">
+          When disabled, the AI cannot be interrupted once it starts speaking. Your input will be cleared and you'll need to use the wake word again after the AI finishes.
         </p>
       </div>
     </div>

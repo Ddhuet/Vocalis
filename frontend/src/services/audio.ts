@@ -68,6 +68,7 @@ export class AudioService {
   private isSpeaking: boolean = false; // Distinct from isPlaying to track TTS specifically
   private isMuted: boolean = false; // Track microphone mute state
   private currentSource: AudioBufferSourceNode | null = null;
+  private playbackTimeoutId: number | null = null; // Safety timeout for stuck playback
   
   // State tracking (for UI coordination)
   private isProcessing: boolean = false;
@@ -519,6 +520,16 @@ export class AudioService {
       } catch (error) {
         console.error('Error decoding audio data:', error);
         this.dispatchEvent(AudioEvent.AUDIO_ERROR, { error });
+        // Ensure state is cleaned up even if decoding fails
+        if (this.audioQueue.length === 0) {
+          this.isPlaying = false;
+          this.isSpeaking = false;
+          this.audioState = AudioState.INACTIVE;
+          this.dispatchEvent(AudioEvent.PLAYBACK_END, {
+            previousState: AudioState.SPEAKING,
+            error: true
+          });
+        }
       }
     } catch (error) {
       console.error('Error queueing audio chunk:', error);
@@ -531,6 +542,12 @@ export class AudioService {
    */
   private playNextChunk(): void {
     console.log(`>> playNextChunk called. Queue length: ${this.audioQueue.length}, isPlaying: ${this.isPlaying}, isSpeaking: ${this.isSpeaking}`);
+    
+    // Clear any existing playback timeout
+    if (this.playbackTimeoutId !== null) {
+      clearTimeout(this.playbackTimeoutId);
+      this.playbackTimeoutId = null;
+    }
     
     if (this.audioQueue.length === 0) {
       this.isPlaying = false;
@@ -559,9 +576,19 @@ export class AudioService {
     source.buffer = buffer;
     source.connect(this.audioContext.destination);
     
+    // Calculate safety timeout duration (buffer duration + 1 second padding)
+    const timeoutDuration = (buffer.duration * 1000) + 1000;
+    
     // Handle when this chunk ends
     source.onended = () => {
       console.log(`Buffer playback ended. Queue length: ${this.audioQueue.length}`);
+      
+      // Clear the safety timeout since playback ended normally
+      if (this.playbackTimeoutId !== null) {
+        clearTimeout(this.playbackTimeoutId);
+        this.playbackTimeoutId = null;
+      }
+      
       // If there are more chunks, play them
       if (this.audioQueue.length > 0) {
         this.playNextChunk();
@@ -582,14 +609,55 @@ export class AudioService {
     this.currentSource = source;
     
     // Start playback with a small delay
-    source.start(this.audioContext.currentTime + 0.05);
-    
-    console.log(`Playing audio buffer: duration=${buffer.duration.toFixed(2)}s, queue remaining: ${this.audioQueue.length}`);
-    
-    // Dispatch playback start event only if we weren't already playing
-    if (!wasPlaying) {
-      console.log('First chunk in sequence - dispatching PLAYBACK_START event');
-      this.dispatchEvent(AudioEvent.PLAYBACK_START, {});
+    try {
+      source.start(this.audioContext.currentTime + 0.05);
+      console.log(`Playing audio buffer: duration=${buffer.duration.toFixed(2)}s, queue remaining: ${this.audioQueue.length}`);
+      
+      // Set a safety timeout in case onended never fires
+      this.playbackTimeoutId = window.setTimeout(() => {
+        console.warn(`Playback safety timeout fired after ${timeoutDuration}ms - forcing state cleanup`);
+        this.currentSource = null;
+        if (this.audioQueue.length > 0) {
+          this.playNextChunk();
+        } else {
+          this.isPlaying = false;
+          this.isSpeaking = false;
+          this.audioState = AudioState.INACTIVE;
+          this.dispatchEvent(AudioEvent.PLAYBACK_END, {
+            previousState: AudioState.SPEAKING,
+            timeout: true
+          });
+        }
+      }, timeoutDuration);
+      
+      // Dispatch playback start event only if we weren't already playing
+      if (!wasPlaying) {
+        console.log('First chunk in sequence - dispatching PLAYBACK_START event');
+        this.dispatchEvent(AudioEvent.PLAYBACK_START, {});
+      }
+    } catch (error) {
+      console.error('Error starting audio playback:', error);
+      this.dispatchEvent(AudioEvent.AUDIO_ERROR, { error });
+      
+      // Clear the safety timeout
+      if (this.playbackTimeoutId !== null) {
+        clearTimeout(this.playbackTimeoutId);
+        this.playbackTimeoutId = null;
+      }
+      
+      // Clean up state and try next chunk or end playback
+      this.currentSource = null;
+      if (this.audioQueue.length > 0) {
+        this.playNextChunk();
+      } else {
+        this.isPlaying = false;
+        this.isSpeaking = false;
+        this.audioState = AudioState.INACTIVE;
+        this.dispatchEvent(AudioEvent.PLAYBACK_END, {
+          previousState: AudioState.SPEAKING,
+          error: true
+        });
+      }
     }
   }
   
@@ -651,6 +719,12 @@ export class AudioService {
     // Store previous state for the event
     const previousState = this.audioState;
     
+    // Clear any playback safety timeout
+    if (this.playbackTimeoutId !== null) {
+      clearTimeout(this.playbackTimeoutId);
+      this.playbackTimeoutId = null;
+    }
+    
     try {
       this.currentSource.stop();
       this.currentSource = null;
@@ -696,6 +770,12 @@ export class AudioService {
     // First stop any active recording/playback
     this.stopRecording();
     this.stopPlayback();
+    
+    // Clear any remaining playback timeout
+    if (this.playbackTimeoutId !== null) {
+      clearTimeout(this.playbackTimeoutId);
+      this.playbackTimeoutId = null;
+    }
     
     // Force-stop and disable all tracks to release hardware
     if (this.mediaStream) {
