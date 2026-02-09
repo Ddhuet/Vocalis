@@ -115,6 +115,9 @@ export class AudioService {
 
   /**
    * Initialize the audio context
+   * 
+   * MOBILE BROWSER NOTE: This method attempts to resume the AudioContext synchronously
+   * first to satisfy mobile browser requirements, then handles async operations.
    */
   private async initAudioContext(): Promise<void> {
     // If context is null, create a new one
@@ -125,9 +128,16 @@ export class AudioService {
           sampleRate: this.config.sampleRate
         });
       } catch (error) {
-        console.error('Failed to create AudioContext', error);
-        this.dispatchEvent(AudioEvent.AUDIO_ERROR, { error });
-        throw error;
+        // Some mobile browsers don't support sampleRate in constructor
+        console.warn('Failed to create AudioContext with sampleRate, trying without:', error);
+        try {
+          this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+          console.log('Created AudioContext without sampleRate, actual rate:', this.audioContext.sampleRate);
+        } catch (error2) {
+          console.error('Failed to create AudioContext', error2);
+          this.dispatchEvent(AudioEvent.AUDIO_ERROR, { error: error2 });
+          throw error2;
+        }
       }
     }
     
@@ -152,6 +162,51 @@ export class AudioService {
   }
 
   /**
+   * Synchronously prepare audio context for mobile browsers
+   * 
+   * CRITICAL FOR MOBILE: Must be called synchronously from a user gesture handler
+   * (click/touch event) BEFORE any async operations. Mobile browsers require
+   * AudioContext.resume() to be called synchronously within the user gesture.
+   * 
+   * Usage: Call this at the very beginning of a click handler, before any await.
+   */
+  public prepareAudioContext(): void {
+    console.log('Preparing audio context (mobile-compatible)');
+    
+    // Create context if needed
+    if (!this.audioContext) {
+      try {
+        // Try with sampleRate first
+        this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
+          sampleRate: this.config.sampleRate
+        });
+        console.log('AudioContext created synchronously with sampleRate:', this.config.sampleRate);
+      } catch (error) {
+        // Some mobile browsers don't support sampleRate in constructor
+        console.warn('Failed to create AudioContext with sampleRate, trying without:', error);
+        try {
+          this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+          console.log('AudioContext created synchronously without sampleRate, actual rate:', this.audioContext.sampleRate);
+        } catch (error2) {
+          console.error('Failed to create AudioContext:', error2);
+          return;
+        }
+      }
+    }
+    
+    // Synchronously attempt to resume (critical for mobile)
+    if (this.audioContext.state === 'suspended') {
+      console.log('Synchronously resuming AudioContext for mobile');
+      // Use void to indicate we're intentionally not awaiting
+      void this.audioContext.resume().then(() => {
+        console.log(`AudioContext resumed, state: ${this.audioContext?.state}`);
+      }).catch(err => {
+        console.error('Error resuming AudioContext:', err);
+      });
+    }
+  }
+
+  /**
    * Start recording audio
    */
   public async startRecording(): Promise<void> {
@@ -164,8 +219,18 @@ export class AudioService {
       await this.initAudioContext();
       
       // Request microphone access
+      // Use 'ideal' constraints for mobile compatibility - lets browser choose best available
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
+        audio: isMobile ? {
+          // Mobile: be more flexible with constraints
+          sampleRate: { ideal: this.config.sampleRate },
+          channelCount: { ideal: this.config.channelCount },
+          echoCancellation: { ideal: this.config.echoCancellation },
+          noiseSuppression: { ideal: this.config.noiseSuppression },
+          autoGainControl: { ideal: this.config.autoGainControl }
+        } : {
+          // Desktop: use exact constraints
           sampleRate: this.config.sampleRate,
           channelCount: this.config.channelCount,
           echoCancellation: this.config.echoCancellation,
@@ -173,6 +238,13 @@ export class AudioService {
           autoGainControl: this.config.autoGainControl
         }
       });
+      
+      // Log actual settings for debugging
+      const track = this.mediaStream.getAudioTracks()[0];
+      if (track) {
+        const settings = track.getSettings();
+        console.log('Microphone settings:', settings);
+      }
       
       // Apply mute state if already set
       if (this.isMuted && this.mediaStream) {
@@ -219,6 +291,15 @@ export class AudioService {
       }
     } catch (error) {
       console.error('Error starting recording:', error);
+      // Log additional details for mobile debugging
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      if (isMobile) {
+        console.error('Mobile device detected. Error details:', {
+          error: error,
+          audioContextState: this.audioContext?.state,
+          userAgent: navigator.userAgent.substring(0, 50)
+        });
+      }
       this.dispatchEvent(AudioEvent.AUDIO_ERROR, { error });
       this.stopRecording();
       throw error;

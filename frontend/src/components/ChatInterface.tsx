@@ -681,6 +681,10 @@ const ChatInterface: React.FC = () => {
 
   // Handle the microphone/end call action
   const handleMicrophoneAction = async () => {
+    // CRITICAL FOR MOBILE: Prepare audio context synchronously before any async operations
+    // Mobile browsers require AudioContext.resume() to be called within the user gesture handler
+    audioService.prepareAudioContext();
+    
     // If we're not in the first interaction and not in processing state, allow end call
     if (!isFirstInteraction && assistantState !== 'processing') {
       // Handle ending the call
