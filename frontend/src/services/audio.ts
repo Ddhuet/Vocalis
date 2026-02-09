@@ -69,6 +69,8 @@ export class AudioService {
   private isMuted: boolean = false; // Track microphone mute state
   private currentSource: AudioBufferSourceNode | null = null;
   private playbackTimeoutId: number | null = null; // Safety timeout for stuck playback
+  private keepAliveOscillator: OscillatorNode | null = null; // Silent oscillator to prevent context suspension
+  private keepAliveGain: GainNode | null = null; // Gain node for keep-alive oscillator
   
   // State tracking (for UI coordination)
   private isProcessing: boolean = false;
@@ -203,6 +205,70 @@ export class AudioService {
       }).catch(err => {
         console.error('Error resuming AudioContext:', err);
       });
+    }
+  }
+
+  /**
+   * Start the keep-alive oscillator to prevent AudioContext suspension
+   * This creates an inaudible tone that keeps the context "warm"
+   * Should be called when a call starts
+   */
+  public startKeepAlive(): void {
+    if (!this.audioContext) {
+      console.warn('Cannot start keep-alive: AudioContext not initialized');
+      return;
+    }
+    
+    // Stop any existing keep-alive first
+    this.stopKeepAlive();
+    
+    try {
+      console.log('Starting AudioContext keep-alive oscillator');
+      
+      // Create an oscillator at a very low frequency (inaudible)
+      this.keepAliveOscillator = this.audioContext.createOscillator();
+      this.keepAliveOscillator.frequency.value = 20; // 20 Hz - below human hearing range
+      
+      // Create a gain node and set it to 0 (silent)
+      this.keepAliveGain = this.audioContext.createGain();
+      this.keepAliveGain.gain.value = 0;
+      
+      // Connect oscillator -> gain -> destination
+      this.keepAliveOscillator.connect(this.keepAliveGain);
+      this.keepAliveGain.connect(this.audioContext.destination);
+      
+      // Start the oscillator
+      this.keepAliveOscillator.start();
+      
+      console.log('Keep-alive oscillator started successfully');
+    } catch (error) {
+      console.error('Failed to start keep-alive oscillator:', error);
+    }
+  }
+
+  /**
+   * Stop the keep-alive oscillator
+   * Should be called when a call ends
+   */
+  public stopKeepAlive(): void {
+    if (this.keepAliveOscillator) {
+      try {
+        this.keepAliveOscillator.stop();
+        this.keepAliveOscillator.disconnect();
+        console.log('Keep-alive oscillator stopped');
+      } catch (error) {
+        console.warn('Error stopping keep-alive oscillator:', error);
+      }
+      this.keepAliveOscillator = null;
+    }
+    
+    if (this.keepAliveGain) {
+      try {
+        this.keepAliveGain.disconnect();
+      } catch (error) {
+        console.warn('Error disconnecting keep-alive gain:', error);
+      }
+      this.keepAliveGain = null;
     }
   }
 
@@ -579,10 +645,22 @@ export class AudioService {
         throw new Error('AudioContext not initialized');
       }
       
+      // Check if context is suspended (mobile browsers may suspend it)
+      if (this.audioContext.state === 'suspended') {
+        console.warn('AudioContext is suspended when trying to play TTS - attempting resume');
+        try {
+          await this.audioContext.resume();
+          console.log(`AudioContext resumed, state: ${this.audioContext.state}`);
+        } catch (resumeError) {
+          console.error('Failed to resume AudioContext for TTS playback:', resumeError);
+          // Continue anyway - the playback might still work or fail with a clear error
+        }
+      }
+      
       // Convert base64 to ArrayBuffer
       const audioData = WebSocketService.base64ToArrayBuffer(base64AudioChunk);
       
-      console.log(`Received complete audio file (${audioData.byteLength} bytes)`);
+      console.log(`Received complete audio file (${audioData.byteLength} bytes), AudioContext state: ${this.audioContext.state}`);
       
       // Decode the audio data
       try {
@@ -857,6 +935,9 @@ export class AudioService {
       clearTimeout(this.playbackTimeoutId);
       this.playbackTimeoutId = null;
     }
+    
+    // Stop the keep-alive oscillator when ending the call
+    this.stopKeepAlive();
     
     // Force-stop and disable all tracks to release hardware
     if (this.mediaStream) {

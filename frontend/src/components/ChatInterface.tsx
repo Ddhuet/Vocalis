@@ -149,7 +149,7 @@ const ChatInterface: React.FC = () => {
 
   // Handle ending a call
   const handleEndCall = () => {
-    // Release all hardware access - completely stops the microphone
+    // Release all hardware access - completely stops the microphone and keep-alive oscillator
     // This is more aggressive than just stopRecording/stopPlayback
     audioService.releaseHardware();
 
@@ -717,9 +717,11 @@ const ChatInterface: React.FC = () => {
           if (isFirstInteraction) {
             // Enable call state first (critical for voice detection to work)
             setCallActive(true);
+            // Start the keep-alive oscillator to prevent AudioContext suspension
+            audioService.startKeepAlive();
+            console.log('Call activated - voice processing and audio keep-alive enabled');
             // Reset follow-up prevention flag when starting a new call
             setPreventFollowUp(false);
-            console.log('Call activated - voice processing enabled');
           }
 
           // Start recording - this will reinitialize the audio context if needed

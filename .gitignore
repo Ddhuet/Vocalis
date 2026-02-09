@@ -8,3 +8,4 @@ OPENAI_LIBRARY_DOC.MD
 OPENROUTER_EXAMPLE.MD
 conversations/
 backend/.env
+frontend/dist/

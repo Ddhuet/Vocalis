@@ -235,6 +235,8 @@ Located in `backend/.env`:
 # API Endpoints
 LLM_API_ENDPOINT=http://127.0.0.1:1234/v1/chat/completions
 TTS_API_ENDPOINT=http://localhost:5005/v1/audio/speech
+LLM_API_KEY=
+LLM_MODEL=
 
 # Whisper Configuration
 WHISPER_MODEL=base              # tiny.en, base.en, small.en, medium.en, large
@@ -263,6 +265,7 @@ Loads `.env` using `python-dotenv`. Provides `get_config()` function returning a
 - **system_prompt.md**: AI behavior instructions (editable via UI)
 - **user_profile.json**: User name and preferences
 - **vision_settings.json**: Vision feature toggle state
+- **voice_settings.json**: Wake word, send word, interrupt toggle
 
 These files are auto-created with defaults if missing.
 
