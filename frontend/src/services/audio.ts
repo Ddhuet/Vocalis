@@ -274,6 +274,9 @@ export class AudioService {
 
   /**
    * Start recording audio
+   * 
+   * IMPORTANT: For mobile call mode stability, this method keeps the microphone stream alive
+   * throughout the entire conversation. The stream is only released when releaseHardware() is called.
    */
   public async startRecording(): Promise<void> {
     if (this.audioState === AudioState.RECORDING) {
@@ -284,39 +287,53 @@ export class AudioService {
     try {
       await this.initAudioContext();
       
-      // Request microphone access
-      // Use 'ideal' constraints for mobile compatibility - lets browser choose best available
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      this.mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: isMobile ? {
-          // Mobile: be more flexible with constraints
-          sampleRate: { ideal: this.config.sampleRate },
-          channelCount: { ideal: this.config.channelCount },
-          echoCancellation: { ideal: this.config.echoCancellation },
-          noiseSuppression: { ideal: this.config.noiseSuppression },
-          autoGainControl: { ideal: this.config.autoGainControl }
-        } : {
-          // Desktop: use exact constraints
-          sampleRate: this.config.sampleRate,
-          channelCount: this.config.channelCount,
-          echoCancellation: this.config.echoCancellation,
-          noiseSuppression: this.config.noiseSuppression,
-          autoGainControl: this.config.autoGainControl
-        }
-      });
-      
-      // Log actual settings for debugging
-      const track = this.mediaStream.getAudioTracks()[0];
-      if (track) {
-        const settings = track.getSettings();
-        console.log('Microphone settings:', settings);
-      }
-      
-      // Apply mute state if already set
-      if (this.isMuted && this.mediaStream) {
-        this.mediaStream.getAudioTracks().forEach(track => {
-          track.enabled = !this.isMuted;
+      // Check if we already have an active media stream (call mode)
+      // This prevents switching between call/media modes on mobile
+      if (!this.mediaStream) {
+        console.log('No existing mediaStream, requesting microphone access...');
+        
+        // Request microphone access
+        // Use 'ideal' constraints for mobile compatibility - lets browser choose best available
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        this.mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: isMobile ? {
+            // Mobile: be more flexible with constraints
+            sampleRate: { ideal: this.config.sampleRate },
+            channelCount: { ideal: this.config.channelCount },
+            echoCancellation: { ideal: this.config.echoCancellation },
+            noiseSuppression: { ideal: this.config.noiseSuppression },
+            autoGainControl: { ideal: this.config.autoGainControl }
+          } : {
+            // Desktop: use exact constraints
+            sampleRate: this.config.sampleRate,
+            channelCount: this.config.channelCount,
+            echoCancellation: this.config.echoCancellation,
+            noiseSuppression: this.config.noiseSuppression,
+            autoGainControl: this.config.autoGainControl
+          }
         });
+        
+        // Log actual settings for debugging
+        const track = this.mediaStream.getAudioTracks()[0];
+        if (track) {
+          const settings = track.getSettings();
+          console.log('Microphone settings:', settings);
+        }
+        
+        // Apply mute state if already set
+        if (this.isMuted && this.mediaStream) {
+          this.mediaStream.getAudioTracks().forEach(track => {
+            track.enabled = !this.isMuted;
+          });
+        }
+      } else {
+        console.log('Reusing existing mediaStream to maintain call mode');
+        // Re-enable the stream if it was muted
+        if (this.mediaStream) {
+          this.mediaStream.getAudioTracks().forEach(track => {
+            track.enabled = !this.isMuted;
+          });
+        }
       }
       
       // Create media stream source
@@ -353,7 +370,7 @@ export class AudioService {
         // Dispatch event
         this.dispatchEvent(AudioEvent.RECORDING_START, {});
         
-        console.log('Recording started');
+        console.log('Recording started (mediaStream maintained)');
       }
     } catch (error) {
       console.error('Error starting recording:', error);
@@ -374,6 +391,10 @@ export class AudioService {
 
   /**
    * Stop recording audio
+   * 
+   * IMPORTANT: This method keeps the microphone stream (mediaStream) alive to maintain
+   * "call mode" on mobile devices. The stream is only released when releaseHardware() is called.
+   * This prevents audio mode switching issues that cause TTS cutoffs.
    */
   public stopRecording(): void {
     if (this.audioState !== AudioState.RECORDING) {
@@ -386,7 +407,7 @@ export class AudioService {
       this.recordingIntervalId = null;
     }
 
-    // Stop and clean up recorder
+    // Stop and clean up script processor (stops audio processing)
     if (this.scriptProcessor) {
       this.scriptProcessor.disconnect();
       this.scriptProcessor = null;
@@ -397,9 +418,17 @@ export class AudioService {
       this.mediaStreamSource = null;
     }
 
+    // NOTE: We intentionally DO NOT stop the mediaStream tracks here!
+    // Keeping the stream alive prevents mobile devices from switching out of "call mode",
+    // which was causing TTS audio to get cut off.
+    // The stream is only released when releaseHardware() is called (end call button).
     if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach(track => track.stop());
-      this.mediaStream = null;
+      // Mute the tracks instead of stopping them to prevent audio feedback
+      // while still maintaining the call mode
+      this.mediaStream.getAudioTracks().forEach(track => {
+        track.enabled = false;
+      });
+      console.log('Microphone tracks muted (stream kept alive for call mode)');
     }
 
     // Send any remaining audio data
@@ -412,7 +441,7 @@ export class AudioService {
     // Dispatch event
     this.dispatchEvent(AudioEvent.RECORDING_STOP, {});
     
-    console.log('Recording stopped');
+    console.log('Recording stopped (mediaStream maintained for call mode stability)');
   }
 
   /**
