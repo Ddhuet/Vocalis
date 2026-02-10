@@ -76,6 +76,7 @@ export class AudioService {
   private isProcessing: boolean = false;
   private isGreeting: boolean = false;
   private isVisionProcessing: boolean = false;
+  private userInterruptEnabled: boolean = false; // User preference for interrupting TTS
   
   // Voice detection parameters
   private isVoiceDetected: boolean = false;
@@ -112,6 +113,15 @@ export class AudioService {
   public setVisionProcessingState(isVisionProcessing: boolean): void {
     this.isVisionProcessing = isVisionProcessing;
     console.log(`Vision processing state set to: ${isVisionProcessing}`);
+  }
+
+  /**
+   * Set user interrupt enabled state from UI/preferences
+   * Controls whether user speech can interrupt TTS playback
+   */
+  public setUserInterruptEnabled(enabled: boolean): void {
+    this.userInterruptEnabled = enabled;
+    console.log(`User interrupt enabled set to: ${enabled}`);
   }
   
 
@@ -496,11 +506,11 @@ export class AudioService {
         this.isVoiceDetected = true;
         
       // Check if we're currently playing TTS audio
-      // If so, interrupt it immediately - BUT NOT during greeting
+      // If so, interrupt it immediately - BUT NOT during greeting AND only if user interrupt is enabled
       // Also explicitly check audioState to catch any edge cases
-      if ((this.isSpeaking || this.audioState === AudioState.SPEAKING) && !this.isGreeting) {
+      if ((this.isSpeaking || this.audioState === AudioState.SPEAKING) && !this.isGreeting && this.userInterruptEnabled) {
         console.log('User started speaking while assistant was speaking - interrupting playback',
-                   `isSpeaking=${this.isSpeaking}, audioState=${this.audioState}, isGreeting=${this.isGreeting}`);
+                   `isSpeaking=${this.isSpeaking}, audioState=${this.audioState}, isGreeting=${this.isGreeting}, userInterruptEnabled=${this.userInterruptEnabled}`);
         // Stop playback locally
         this.stopPlayback();
         // Send interrupt signal to server
@@ -512,6 +522,8 @@ export class AudioService {
         });
       } else if (this.isGreeting) {
         console.log('Voice detected during greeting - suppressing interrupt');
+      } else if ((this.isSpeaking || this.audioState === AudioState.SPEAKING) && !this.userInterruptEnabled) {
+        console.log('Voice detected during TTS but user interrupt is disabled - ignoring');
       }
       }
       this.lastVoiceTime = Date.now();

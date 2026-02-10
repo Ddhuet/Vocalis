@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { User, Sparkles, Eye, Mic } from 'lucide-react';
 import websocketService, { MessageType } from '../services/websocket';
+import audioService from '../services/audio';
 
 interface PreferencesModalProps {
   isOpen: boolean;
@@ -53,7 +54,11 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
           if (data.wake_word !== undefined) setWakeWord(data.wake_word);
           if (data.send_word_enabled !== undefined) setIsSendWordEnabled(data.send_word_enabled);
           if (data.send_word !== undefined) setSendWord(data.send_word);
-          if (data.user_interrupt_enabled !== undefined) setIsUserInterruptEnabled(data.user_interrupt_enabled);
+          if (data.user_interrupt_enabled !== undefined) {
+            setIsUserInterruptEnabled(data.user_interrupt_enabled);
+            // Sync with AudioService so it respects the setting during playback
+            audioService.setUserInterruptEnabled(data.user_interrupt_enabled);
+          }
         }
       };
 
@@ -177,6 +182,8 @@ const PreferencesModal: React.FC<PreferencesModalProps> = ({ isOpen, onClose }) 
     websocketService.updateSystemPrompt(systemPrompt);
     websocketService.updateUserProfile(userName);
     websocketService.updateVisionSettings(isVisionEnabled);
+    // Sync user interrupt setting to AudioService immediately before sending to backend
+    audioService.setUserInterruptEnabled(isUserInterruptEnabled);
     websocketService.updateVoiceSettings(
       isAiFollowupsEnabled,
       isWakeWordEnabled,

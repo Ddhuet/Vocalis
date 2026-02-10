@@ -273,6 +273,38 @@ const ChatInterface: React.FC = () => {
     };
   }, []);
 
+  // Listen for voice settings to sync user interrupt preference
+  useEffect(() => {
+    const handleVoiceSettings = (data: any) => {
+      if (data && data.user_interrupt_enabled !== undefined) {
+        console.log(`Received voice settings: user_interrupt_enabled=${data.user_interrupt_enabled}`);
+        // Sync user interrupt setting to AudioService
+        audioService.setUserInterruptEnabled(data.user_interrupt_enabled);
+      }
+    };
+
+    const handleConnectionOpen = () => {
+      console.log('WebSocket connected, requesting voice settings');
+      websocketService.getVoiceSettings();
+    };
+
+    // Add event listeners
+    websocketService.addEventListener(MessageType.VOICE_SETTINGS as any, handleVoiceSettings);
+    websocketService.addEventListener('open', handleConnectionOpen);
+
+    // ALSO check if we're already connected, and if so, request settings immediately
+    if (websocketService.getConnectionState() === ConnectionState.CONNECTED) {
+      console.log('Already connected, requesting voice settings immediately');
+      websocketService.getVoiceSettings();
+    }
+
+    return () => {
+      // Clean up all listeners
+      websocketService.removeEventListener(MessageType.VOICE_SETTINGS as any, handleVoiceSettings);
+      websocketService.removeEventListener('open', handleConnectionOpen);
+    };
+  }, []);
+
   // Set up event listeners (in a separate effect so the delay doesn't affect listeners)
   useEffect(() => {
 
