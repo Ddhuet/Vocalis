@@ -119,8 +119,10 @@ class WhisperTranscriber:
             segments, info = self.model.transcribe(
                 audio, 
                 beam_size=self.beam_size,
-                language="en",  # Force English language
-                vad_filter=False  # Disable VAD filter since we handle it in the frontend
+                language="en",  
+                vad_filter=True,                   # 1. Turn this ON
+                condition_on_previous_text=False,  # 2. Stop it from making up context
+                no_speech_threshold=0.6            # 3. Increase certainty threshold
             )
             
             # Collect all segment texts
