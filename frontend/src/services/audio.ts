@@ -85,6 +85,17 @@ export class AudioService {
   private lastVoiceTime: number = 0;
   private minRecordingLength: number = 1000; // Minimum ms of audio to send
 
+  // Ring buffer for STT - captures audio before and after speech detection
+  private preVADRingBuffer: Float32Array[] = [];      // Rolling 500ms before speech
+  private preVADRingDurationMs: number = 0;           // Current pre-buffer duration
+  private capturedPreBuffer: Float32Array[] = [];     // Snapshot of pre-buffer when speech starts
+  private readonly PRE_BUFFER_MS: number = 500;       // 500ms pre-buffer
+
+  private postVADBuffer: Float32Array[] = [];         // First 500ms of silence after speech
+  private postVADBufferDurationMs: number = 0;        // Current post-buffer duration
+  private isCapturingPostBuffer: boolean = false;     // Flag for post-buffer capture
+  private readonly POST_BUFFER_MS: number = 500;      // 500ms post-buffer
+
   constructor(config: Partial<AudioConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
   }
@@ -364,8 +375,14 @@ export class AudioService {
         // Handle audio processing
         this.scriptProcessor.onaudioprocess = this.handleAudioProcess.bind(this);
         
-        // Clear previous buffer
+        // Clear all buffers
         this.audioBuffer = [];
+        this.preVADRingBuffer = [];
+        this.preVADRingDurationMs = 0;
+        this.capturedPreBuffer = [];
+        this.postVADBuffer = [];
+        this.postVADBufferDurationMs = 0;
+        this.isCapturingPostBuffer = false;
         
         // Set state
         this.audioState = AudioState.RECORDING;
@@ -466,6 +483,18 @@ export class AudioService {
     return rms;
   }
 
+  private addToPreVADRingBuffer(buffer: Float32Array): void {
+    const chunkDurationMs = (buffer.length / this.config.sampleRate) * 1000;
+    
+    this.preVADRingBuffer.push(buffer);
+    this.preVADRingDurationMs += chunkDurationMs;
+    
+    while (this.preVADRingDurationMs > this.PRE_BUFFER_MS && this.preVADRingBuffer.length > 0) {
+      const oldest = this.preVADRingBuffer.shift()!;
+      this.preVADRingDurationMs -= (oldest.length / this.config.sampleRate) * 1000;
+    }
+  }
+
   /**
    * Handle audio processing
    */
@@ -479,6 +508,9 @@ export class AudioService {
     
     // Calculate RMS energy
     const energy = this.calculateRMSEnergy(bufferCopy);
+    
+    // ALWAYS maintain the pre-VAD ring buffer (rolling 500ms)
+    this.addToPreVADRingBuffer(bufferCopy);
     
     // Check if energy is above threshold (voice detected)
     if (energy > this.voiceThreshold) {
@@ -505,27 +537,42 @@ export class AudioService {
         console.log('Voice detected, energy:', energy);
         this.isVoiceDetected = true;
         
-      // Check if we're currently playing TTS audio
-      // If so, interrupt it immediately - BUT NOT during greeting AND only if user interrupt is enabled
-      // Also explicitly check audioState to catch any edge cases
-      if ((this.isSpeaking || this.audioState === AudioState.SPEAKING) && !this.isGreeting && this.userInterruptEnabled) {
-        console.log('User started speaking while assistant was speaking - interrupting playback',
-                   `isSpeaking=${this.isSpeaking}, audioState=${this.audioState}, isGreeting=${this.isGreeting}, userInterruptEnabled=${this.userInterruptEnabled}`);
-        // Stop playback locally
-        this.stopPlayback();
-        // Send interrupt signal to server
-        websocketService.interrupt();
-        // Dispatch an event so UI can update
-        this.dispatchEvent(AudioEvent.PLAYBACK_STOP, {
-          interrupted: true,
-          reason: 'user_interrupt'
-        });
-      } else if (this.isGreeting) {
-        console.log('Voice detected during greeting - suppressing interrupt');
-      } else if ((this.isSpeaking || this.audioState === AudioState.SPEAKING) && !this.userInterruptEnabled) {
-        console.log('Voice detected during TTS but user interrupt is disabled - ignoring');
+        // RING BUFFER: Capture the pre-buffer snapshot when speech starts
+        this.capturedPreBuffer = [...this.preVADRingBuffer];
+        console.log(`Captured pre-buffer: ${this.capturedPreBuffer.length} chunks (~${this.preVADRingDurationMs.toFixed(0)}ms)`);
+        
+        // Reset post-buffer state (handles back-to-back speech edge case)
+        this.postVADBuffer = [];
+        this.postVADBufferDurationMs = 0;
+        this.isCapturingPostBuffer = false;
+        
+        // Check if we're currently playing TTS audio
+        // If so, interrupt it immediately - BUT NOT during greeting AND only if user interrupt is enabled
+        // Also explicitly check audioState to catch any edge cases
+        if ((this.isSpeaking || this.audioState === AudioState.SPEAKING) && !this.isGreeting && this.userInterruptEnabled) {
+          console.log('User started speaking while assistant was speaking - interrupting playback',
+                     `isSpeaking=${this.isSpeaking}, audioState=${this.audioState}, isGreeting=${this.isGreeting}, userInterruptEnabled=${this.userInterruptEnabled}`);
+          // Stop playback locally
+          this.stopPlayback();
+          // Send interrupt signal to server
+          websocketService.interrupt();
+          // Dispatch an event so UI can update
+          this.dispatchEvent(AudioEvent.PLAYBACK_STOP, {
+            interrupted: true,
+            reason: 'user_interrupt'
+          });
+        } else if (this.isGreeting) {
+          console.log('Voice detected during greeting - suppressing interrupt');
+        } else if ((this.isSpeaking || this.audioState === AudioState.SPEAKING) && !this.userInterruptEnabled) {
+          console.log('Voice detected during TTS but user interrupt is disabled - ignoring');
+        }
       }
-      }
+      
+      // Reset post-buffer capture when voice is detected again (during speech)
+      this.isCapturingPostBuffer = false;
+      this.postVADBuffer = [];
+      this.postVADBufferDurationMs = 0;
+      
       this.lastVoiceTime = Date.now();
     }
     
@@ -544,14 +591,33 @@ export class AudioService {
     if (this.isVoiceDetected) {
       this.audioBuffer.push(bufferCopy);
       
-      // Check if we've exceeded silence timeout
       const timeSinceVoice = Date.now() - this.lastVoiceTime;
-      if (energy <= this.voiceThreshold && timeSinceVoice > this.silenceTimeout) {
-        console.log('Voice ended, silence timeout exceeded');
-        this.isVoiceDetected = false;
+      
+      // RING BUFFER: Capture post-buffer during first 500ms of silence
+      if (energy <= this.voiceThreshold) {
+        // Start capturing post-buffer when silence begins
+        if (!this.isCapturingPostBuffer) {
+          this.isCapturingPostBuffer = true;
+          this.postVADBuffer = [];
+          this.postVADBufferDurationMs = 0;
+          console.log('Silence detected, starting post-buffer capture');
+        }
         
-        // Send accumulated audio
-        this.sendAudioChunk();
+        // Continue capturing until we have 500ms
+        if (this.postVADBufferDurationMs < this.POST_BUFFER_MS) {
+          this.postVADBuffer.push(bufferCopy);
+          this.postVADBufferDurationMs += (bufferCopy.length / this.config.sampleRate) * 1000;
+        }
+        
+        // Check if we've exceeded full silence timeout (1s)
+        if (timeSinceVoice > this.silenceTimeout) {
+          console.log('Voice ended, silence timeout exceeded');
+          console.log(`Post-buffer captured: ${this.postVADBuffer.length} chunks (~${this.postVADBufferDurationMs.toFixed(0)}ms)`);
+          this.isVoiceDetected = false;
+          
+          // Send accumulated audio (with ring buffers)
+          this.sendAudioChunk();
+        }
       }
     }
     
@@ -623,9 +689,17 @@ export class AudioService {
 
   /**
    * Send accumulated audio chunk to WebSocket
+   * Combines: pre-buffer + speech buffer + post-buffer
    */
   private sendAudioChunk(): void {
-    if (this.audioBuffer.length === 0) {
+    // Combine all buffers: pre-buffer + speech + post-buffer
+    const allBuffers = [
+      ...this.capturedPreBuffer,
+      ...this.audioBuffer,
+      ...this.postVADBuffer
+    ];
+    
+    if (allBuffers.length === 0) {
       return;
     }
     
@@ -633,31 +707,44 @@ export class AudioService {
     if (this.isProcessing) {
       console.log('Processing state active, discarding audio chunk');
       this.audioBuffer = [];
+      this.capturedPreBuffer = [];
+      this.postVADBuffer = [];
       return;
     }
 
-    // Calculate total length
-    const totalLength = this.audioBuffer.reduce((acc, buffer) => acc + buffer.length, 0);
+    // Calculate total length and individual durations
+    const preBufferLength = this.capturedPreBuffer.reduce((acc, buf) => acc + buf.length, 0);
+    const speechBufferLength = this.audioBuffer.reduce((acc, buf) => acc + buf.length, 0);
+    const postBufferLength = this.postVADBuffer.reduce((acc, buf) => acc + buf.length, 0);
+    const totalLength = preBufferLength + speechBufferLength + postBufferLength;
+    
+    // Calculate durations for logging
+    const preBufferMs = (preBufferLength / this.config.sampleRate) * 1000;
+    const speechMs = (speechBufferLength / this.config.sampleRate) * 1000;
+    const postBufferMs = (postBufferLength / this.config.sampleRate) * 1000;
+    const totalMs = (totalLength / this.config.sampleRate) * 1000;
     
     // Check if we have enough audio to send (avoid sending tiny fragments)
-    const audioLengthMs = (totalLength / this.config.sampleRate) * 1000;
-    if (!this.isVoiceDetected && audioLengthMs < this.minRecordingLength) {
-      console.log(`Audio too short (${audioLengthMs.toFixed(0)}ms), discarding`);
+    // Only check speech portion - ring buffers are allowed to make total shorter
+    if (!this.isVoiceDetected && speechMs < this.minRecordingLength) {
+      console.log(`Speech audio too short (${speechMs.toFixed(0)}ms), discarding`);
       this.audioBuffer = [];
+      this.capturedPreBuffer = [];
+      this.postVADBuffer = [];
       return;
     }
     
     // Create combined buffer
     const combinedBuffer = new Float32Array(totalLength);
     
-    // Copy data
+    // Copy data in order: pre-buffer -> speech -> post-buffer
     let offset = 0;
-    for (const buffer of this.audioBuffer) {
+    for (const buffer of allBuffers) {
       combinedBuffer.set(buffer, offset);
       offset += buffer.length;
     }
     
-    console.log(`Sending audio chunk: ${audioLengthMs.toFixed(0)}ms`);
+    console.log(`Sending audio: pre=${preBufferMs.toFixed(0)}ms + speech=${speechMs.toFixed(0)}ms + post=${postBufferMs.toFixed(0)}ms = ${totalMs.toFixed(0)}ms total`);
     
     // Convert to WAV format
     const wavBuffer = this.float32ToWav(combinedBuffer, this.config.sampleRate);
@@ -665,8 +752,12 @@ export class AudioService {
     // Send to WebSocket
     websocketService.sendAudio(wavBuffer);
     
-    // Clear buffer
+    // Clear all buffers
     this.audioBuffer = [];
+    this.capturedPreBuffer = [];
+    this.postVADBuffer = [];
+    this.postVADBufferDurationMs = 0;
+    this.isCapturingPostBuffer = false;
   }
 
   /**
@@ -1014,6 +1105,14 @@ export class AudioService {
     this.audioBuffer = [];
     this.isPlaying = false;
     this.isSpeaking = false;
+    
+    // Reset ring buffers
+    this.preVADRingBuffer = [];
+    this.preVADRingDurationMs = 0;
+    this.capturedPreBuffer = [];
+    this.postVADBuffer = [];
+    this.postVADBufferDurationMs = 0;
+    this.isCapturingPostBuffer = false;
     
     console.log('All hardware access released');
   }

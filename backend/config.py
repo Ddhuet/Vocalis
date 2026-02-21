@@ -44,6 +44,9 @@ VAD_THRESHOLD = float(_getenv("VAD_THRESHOLD", 0.5))
 VAD_BUFFER_SIZE = int(_getenv("VAD_BUFFER_SIZE", 30))
 AUDIO_SAMPLE_RATE = int(_getenv("AUDIO_SAMPLE_RATE", 48000))
 
+# Context Management
+APPROXIMATE_CONTEXT_LENGTH = int(_getenv("APPROXIMATE_CONTEXT_LENGTH", 16000))
+
 def get_config() -> Dict[str, Any]:
     """
     Returns all configuration settings as a dictionary.
@@ -65,4 +68,5 @@ def get_config() -> Dict[str, Any]:
         "vad_threshold": VAD_THRESHOLD,
         "vad_buffer_size": VAD_BUFFER_SIZE,
         "audio_sample_rate": AUDIO_SAMPLE_RATE,
+        "approximate_context_length": APPROXIMATE_CONTEXT_LENGTH,
     }

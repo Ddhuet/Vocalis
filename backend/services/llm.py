@@ -25,9 +25,10 @@ class LLMClient:
         api_endpoint: str = "http://127.0.0.1:1234/v1",
         api_key: str = "",
         model: str = "",
-        temperature: float = 0.7,
+        temperature: float = 0.6,
         max_tokens: int = 2048,
-        timeout: int = 60
+        timeout: int = 20,
+        approximate_context_length: int = 16000
     ):
         """
         Initialize the LLM client.
@@ -39,6 +40,7 @@ class LLMClient:
             temperature: Sampling temperature (0.0 to 1.0)
             max_tokens: Maximum tokens to generate
             timeout: Request timeout in seconds
+            approximate_context_length: Approximate context length in tokens (4 chars ≈ 1 token)
         """
         self.api_endpoint = api_endpoint
         self.api_key = api_key
@@ -46,6 +48,7 @@ class LLMClient:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.timeout = timeout
+        self.approximate_context_length = approximate_context_length
         
         # State tracking
         self.is_processing = False
@@ -58,7 +61,45 @@ class LLMClient:
             timeout=timeout
         )
         
-        logger.info(f"Initialized LLM Client with endpoint={api_endpoint}")
+        logger.info(f"Initialized LLM Client with endpoint={api_endpoint}, context_length={approximate_context_length}")
+        
+    def _calculate_messages_char_count(self) -> int:
+        """
+        Calculate the approximate character count of the messages array.
+        This includes all JSON structure (brackets, keys, etc.)
+        
+        Returns:
+            int: Total character count of the messages array JSON
+        """
+        return len(json.dumps(self.conversation_history))
+    
+    def _trim_history_to_fit_context(self) -> None:
+        """
+        Trim conversation history to fit within the approximate context length.
+        Uses FIFO: removes oldest messages after the system prompt first.
+        Never removes the system prompt (first message if role is 'system').
+        """
+        max_chars = self.approximate_context_length * 4
+        
+        while self._calculate_messages_char_count() > max_chars and len(self.conversation_history) > 1:
+            has_system_prompt = (
+                len(self.conversation_history) > 0 and 
+                self.conversation_history[0]["role"] == "system"
+            )
+            
+            if has_system_prompt:
+                if len(self.conversation_history) > 1:
+                    del self.conversation_history[1]
+                else:
+                    break
+            else:
+                del self.conversation_history[0]
+        
+        if self._calculate_messages_char_count() > max_chars:
+            logger.warning(
+                f"Context still exceeds limit ({self._calculate_messages_char_count()} > {max_chars} chars) "
+                f"after trimming. Consider increasing APPROXIMATE_CONTEXT_LENGTH."
+            )
         
     def add_to_history(self, role: str, content: str) -> None:
         """
@@ -73,16 +114,7 @@ class LLMClient:
             "content": content
         })
         
-        # Allow deeper history for models with large context windows
-        if len(self.conversation_history) > 50:
-            # Always keep the system message if it exists
-            if self.conversation_history[0]["role"] == "system":
-                self.conversation_history = (
-                    [self.conversation_history[0]] + 
-                    self.conversation_history[-49:]
-                )
-            else:
-                self.conversation_history = self.conversation_history[-50:]
+        self._trim_history_to_fit_context()
     
     def get_response(self, user_input: str, system_prompt: Optional[str] = None, 
                     add_to_history: bool = True, temperature: Optional[float] = None) -> Dict[str, Any]:
@@ -139,7 +171,9 @@ class LLMClient:
                 "temperature": temperature if temperature is not None else self.temperature,
                 "max_tokens": self.max_tokens,
                 "extra_body": {
-                    "reasoning": {"enabled": False}
+                    "reasoning": {
+                        "enabled": False
+                    }
                 }
             }
             
@@ -218,6 +252,8 @@ class LLMClient:
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
             "timeout": self.timeout,
+            "approximate_context_length": self.approximate_context_length,
             "is_processing": self.is_processing,
-            "history_length": len(self.conversation_history)
+            "history_length": len(self.conversation_history),
+            "history_char_count": self._calculate_messages_char_count()
         }
