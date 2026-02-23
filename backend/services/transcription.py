@@ -1,92 +1,130 @@
 """
 Speech-to-Text Transcription Service
 
-Uses Faster Whisper to transcribe speech audio.
+Uses NVIDIA Parakeet (via NeMo) to transcribe speech audio.
 """
 
 import numpy as np
 import logging
-import io  # For BytesIO
+import io
+import struct
 from typing import Dict, Any, List, Optional, Tuple
-from faster_whisper import WhisperModel
+from scipy import signal
 import time
-import torch  # For CUDA availability check
+import torch
 
-# Configure logging
+import nemo.collections.asr as nemo_asr
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class WhisperTranscriber:
+class ParakeetTranscriber:
     """
-    Speech-to-Text service using Faster Whisper.
+    Speech-to-Text service using NVIDIA Parakeet (NeMo).
     
-    This class handles transcription of speech audio segments.
+    Requires 16kHz mono audio. Handles resampling from any input sample rate.
     """
+    
+    TARGET_SAMPLE_RATE = 16000
     
     def __init__(
         self,
-        model_size: str = "base",
+        model_name: str = "nvidia/parakeet-tdt-0.6b-v3",
         device: str = None,
-        compute_type: str = None,
-        beam_size: int = 2,
-        sample_rate: int = 44100
     ):
         """
         Initialize the transcription service.
         
         Args:
-            model_size: Whisper model size (tiny.en, base.en, small.en, medium.en, large)
+            model_name: Parakeet model name (e.g., nvidia/parakeet-tdt-0.6b-v3)
             device: Device to run model on ('cpu' or 'cuda'), if None will auto-detect
-            compute_type: Model computation type (int8, int16, float16, float32), if None will select based on device
-            beam_size: Beam size for decoding
-            sample_rate: Audio sample rate in Hz
         """
-        self.model_size = model_size
+        self.model_name = model_name
         
-        # Auto-detect device if not specified
         if device is None:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         else:
             self.device = device
-            
-        # Select appropriate compute type based on device if not specified
-        if compute_type is None:
-            self.compute_type = "float16" if self.device == "cuda" else "int8"
-        else:
-            self.compute_type = compute_type
-            
-        self.beam_size = beam_size
-        self.sample_rate = sample_rate
         
-        # Initialize model
         self._initialize_model()
         
-        # State tracking
         self.is_processing = False
         
-        logger.info(f"Initialized Whisper Transcriber with model={model_size}, "
-                   f"device={self.device}, compute_type={self.compute_type}")
+        logger.info(f"Initialized Parakeet Transcriber with model={model_name}, device={self.device}")
     
     def _initialize_model(self):
-        """Initialize Whisper model."""
+        """Initialize Parakeet model."""
         try:
-            # Load the model
-            self.model = WhisperModel(
-                self.model_size,  # Pass as positional argument, not keyword
-                device=self.device,
-                compute_type=self.compute_type
-            )
-            logger.info(f"Successfully loaded Whisper model: {self.model_size}")
+            self.model = nemo_asr.models.ASRModel.from_pretrained(model_name=self.model_name)
+            self.model.to(self.device)
+            logger.info(f"Successfully loaded Parakeet model: {self.model_name}")
         except Exception as e:
-            logger.error(f"Failed to load Whisper model: {e}")
+            logger.error(f"Failed to load Parakeet model: {e}")
             raise
+    
+    def _parse_wav_header(self, audio_bytes: bytes) -> Tuple[int, int, int]:
+        """
+        Parse WAV header to extract audio parameters.
+        
+        Args:
+            audio_bytes: Raw WAV file bytes
+            
+        Returns:
+            Tuple of (sample_rate, num_channels, data_offset)
+        """
+        if len(audio_bytes) < 44:
+            raise ValueError("Audio data too short to contain WAV header")
+        
+        riff = audio_bytes[0:4]
+        wave = audio_bytes[8:12]
+        
+        if riff != b'RIFF' or wave != b'WAVE':
+            raise ValueError("Invalid WAV header")
+        
+        sample_rate = struct.unpack('<I', audio_bytes[24:28])[0]
+        num_channels = struct.unpack('<H', audio_bytes[22:24])[0]
+        
+        data_offset = 44
+        
+        chunk_id = audio_bytes[12:16]
+        if chunk_id == b'fmt ':
+            fmt_size = struct.unpack('<I', audio_bytes[16:20])[0]
+            data_offset = 20 + fmt_size
+            
+            while data_offset < len(audio_bytes):
+                if audio_bytes[data_offset:data_offset+4] == b'data':
+                    break
+                chunk_size = struct.unpack('<I', audio_bytes[data_offset+4:data_offset+8])[0]
+                data_offset += 8 + chunk_size
+        
+        return sample_rate, num_channels, data_offset
+    
+    def _resample_audio(self, audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
+        """
+        Resample audio from original sample rate to target sample rate.
+        
+        Args:
+            audio: Audio samples as numpy array
+            orig_sr: Original sample rate
+            target_sr: Target sample rate
+            
+        Returns:
+            Resampled audio array
+        """
+        if orig_sr == target_sr:
+            return audio
+        
+        num_samples = int(len(audio) * target_sr / orig_sr)
+        resampled = signal.resample(audio, num_samples)
+        
+        return resampled.astype(np.float32)
     
     def transcribe(self, audio: np.ndarray) -> Tuple[str, Dict[str, Any]]:
         """
         Transcribe audio data to text.
         
         Args:
-            audio: Audio data as numpy array
+            audio: Audio data as numpy array (WAV bytes as uint8 or float32)
             
         Returns:
             Tuple[str, Dict[str, Any]]: 
@@ -97,50 +135,63 @@ class WhisperTranscriber:
         self.is_processing = True
         
         try:
-            # Handle WAV data (if audio is in uint8 format, it contains WAV headers)
+            audio_array = None
+            input_sample_rate = None
+            
             if audio.dtype == np.uint8:
-                # First check the RIFF header to confirm this is WAV data
-                header = bytes(audio[:44])
-                if header[:4] == b'RIFF' and header[8:12] == b'WAVE':
-                    # Create a file-like object that Whisper can read from
-                    audio_file = io.BytesIO(bytes(audio))
-                    # The transcribe method expects a file-like object with read method
-                    audio = audio_file
-                else:
-                    # Not a proper WAV header
-                    logger.warning("Received audio data with incorrect WAV header")
-                    # Attempt to process as raw data
-                    audio = audio.astype(np.float32) / np.max(np.abs(audio)) if np.max(np.abs(audio)) > 0 else audio
+                audio_bytes = bytes(audio)
+                
+                try:
+                    input_sample_rate, num_channels, data_offset = self._parse_wav_header(audio_bytes)
+                    logger.debug(f"WAV header: sample_rate={input_sample_rate}, channels={num_channels}")
+                    
+                    raw_pcm = audio_bytes[data_offset:]
+                    
+                    pcm_int16 = np.frombuffer(raw_pcm, dtype=np.int16)
+                    
+                    audio_array = pcm_int16.astype(np.float32) / 32768.0
+                    
+                    if num_channels > 1:
+                        audio_array = audio_array.reshape(-1, num_channels)
+                        audio_array = audio_array.mean(axis=1)
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to parse WAV header: {e}, attempting direct processing")
+                    audio_array = audio.astype(np.float32) / 255.0
+                    input_sample_rate = 44100
             else:
-                # Normalize audio if it's raw float data
-                audio = audio.astype(np.float32) / np.max(np.abs(audio)) if np.max(np.abs(audio)) > 0 else audio
+                audio_array = audio.astype(np.float32)
+                if np.max(np.abs(audio_array)) > 1.0:
+                    audio_array = audio_array / np.max(np.abs(audio_array))
+                input_sample_rate = 44100
             
-            # Transcribe
-            segments, info = self.model.transcribe(
-                audio, 
-                beam_size=self.beam_size,
-                language="en",  
-                vad_filter=True,                   # 1. Turn this ON
-                condition_on_previous_text=False,  # 2. Stop it from making up context
-                no_speech_threshold=0.6            # 3. Increase certainty threshold
-            )
+            if input_sample_rate != self.TARGET_SAMPLE_RATE:
+                logger.debug(f"Resampling from {input_sample_rate}Hz to {self.TARGET_SAMPLE_RATE}Hz")
+                audio_array = self._resample_audio(audio_array, input_sample_rate, self.TARGET_SAMPLE_RATE)
             
-            # Collect all segment texts
-            text_segments = [segment.text for segment in segments]
-            full_text = " ".join(text_segments).strip()
+            output = self.model.transcribe([audio_array])
             
-            # Calculate processing time
+            if output and len(output) > 0:
+                result = output[0]
+                if hasattr(result, 'text'):
+                    text = result.text
+                else:
+                    text = str(result)
+            else:
+                text = ""
+            
             processing_time = time.time() - start_time
-            logger.info(f"Transcription completed in {processing_time:.2f}s: {full_text[:50]}...")
+            logger.info(f"Transcription completed in {processing_time:.2f}s: {text[:50]}...")
             
             metadata = {
-                "confidence": getattr(info, "avg_logprob", 0),
-                "language": getattr(info, "language", "en"),
+                "confidence": 0.0,
+                "language": "en",
                 "processing_time": processing_time,
-                "segments_count": len(text_segments)
+                "input_sample_rate": input_sample_rate,
+                "resampled_to": self.TARGET_SAMPLE_RATE
             }
             
-            return full_text, metadata
+            return text, metadata
             
         except Exception as e:
             logger.error(f"Transcription error: {e}")
@@ -152,6 +203,9 @@ class WhisperTranscriber:
         """
         Stream transcription results from an audio generator.
         
+        Note: Parakeet doesn't natively support streaming in the same way as Whisper.
+        This method accumulates audio and transcribes in chunks.
+        
         Args:
             audio_generator: Generator yielding audio chunks
             
@@ -161,19 +215,20 @@ class WhisperTranscriber:
         self.is_processing = True
         
         try:
-            # Process the streaming transcription
-            segments = self.model.transcribe_with_vad(
-                audio_generator,
-                language="en"
-            )
+            accumulated_audio = []
             
-            # Yield each segment as it's transcribed
-            for segment in segments:
+            for chunk in audio_generator:
+                accumulated_audio.append(chunk)
+            
+            if accumulated_audio:
+                full_audio = np.concatenate(accumulated_audio)
+                text, metadata = self.transcribe(full_audio)
+                
                 yield {
-                    "text": segment.text,
-                    "start": segment.start,
-                    "end": segment.end,
-                    "confidence": segment.avg_logprob
+                    "text": text,
+                    "start": 0,
+                    "end": len(full_audio) / self.TARGET_SAMPLE_RATE,
+                    "confidence": metadata.get("confidence", 0)
                 }
                 
         except Exception as e:
@@ -190,10 +245,8 @@ class WhisperTranscriber:
             Dict containing the current configuration
         """
         return {
-            "model_size": self.model_size,
+            "model_name": self.model_name,
             "device": self.device,
-            "compute_type": self.compute_type,
-            "beam_size": self.beam_size,
-            "sample_rate": self.sample_rate,
+            "target_sample_rate": self.TARGET_SAMPLE_RATE,
             "is_processing": self.is_processing
         }

@@ -16,7 +16,7 @@ from fastapi import WebSocket, WebSocketDisconnect, BackgroundTasks
 from pydantic import BaseModel
 from datetime import datetime
 
-from ..services.transcription import WhisperTranscriber
+from ..services.transcription import ParakeetTranscriber
 from ..services.llm import LLMClient
 from ..services.tts import TTSClient
 from ..services.conversation_storage import ConversationStorage
@@ -72,7 +72,7 @@ class WebSocketManager:
     
     def __init__(
         self,
-        transcriber: WhisperTranscriber,
+        transcriber: ParakeetTranscriber,
         llm_client: LLMClient,
         tts_client: TTSClient
     ):
@@ -80,7 +80,7 @@ class WebSocketManager:
         Initialize the WebSocket manager.
         
         Args:
-            transcriber: Whisper transcription service
+            transcriber: Parakeet transcription service
             llm_client: LLM client service
             tts_client: TTS client service
         """
@@ -234,9 +234,9 @@ class WebSocketManager:
             audio_data: Raw audio data
         """
         try:
-            # We're receiving WAV data, so we need to parse the WAV header
+            # We're receiving WAV data, so we need to pass it to the transcriber
             # WAV format: 44-byte header followed by PCM data
-            # Let whisper handle the WAV data directly - it can parse WAV headers
+            # The transcriber will handle WAV parsing and resampling
             audio_array = np.frombuffer(audio_data, dtype=np.uint8)
             
             # Interrupt any ongoing TTS playback
@@ -255,7 +255,7 @@ class WebSocketManager:
                 logger.info("TTS generation in progress, will not interrupt (waiting for completion)")
             
             # Process the audio segment in a background task
-            # Whisper will handle voice activity detection internally
+            # Parakeet will handle the transcription
             self.current_audio_task = asyncio.create_task(
                 self._process_speech_segment(websocket, audio_array)
             )
@@ -1547,7 +1547,7 @@ class WebSocketManager:
 
 async def websocket_endpoint(
     websocket: WebSocket,
-    transcriber: WhisperTranscriber,
+    transcriber: ParakeetTranscriber,
     llm_client: LLMClient,
     tts_client: TTSClient
 ):
@@ -1556,7 +1556,7 @@ async def websocket_endpoint(
     
     Args:
         websocket: The WebSocket connection
-        transcriber: Whisper transcription service
+        transcriber: Parakeet transcription service
         llm_client: LLM client service
         tts_client: TTS client service
     """

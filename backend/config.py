@@ -27,8 +27,8 @@ LLM_API_KEY = _getenv("LLM_API_KEY", "")
 LLM_MODEL = _getenv("LLM_MODEL", "")
 TTS_API_ENDPOINT = _getenv("TTS_API_ENDPOINT", "http://localhost:5005/v1/audio/speech")
 
-# Whisper Model Configuration
-WHISPER_MODEL = _getenv("WHISPER_MODEL", "tiny.en")
+# Parakeet Model Configuration
+PARAKEET_MODEL = _getenv("PARAKEET_MODEL", "nvidia/parakeet-tdt-0.6b-v3")
 
 # TTS Configuration
 TTS_MODEL = _getenv("TTS_MODEL", "tts-1")
@@ -59,7 +59,7 @@ def get_config() -> Dict[str, Any]:
         "llm_api_key": LLM_API_KEY,
         "llm_model": LLM_MODEL,
         "tts_api_endpoint": TTS_API_ENDPOINT,
-        "whisper_model": WHISPER_MODEL,
+        "parakeet_model": PARAKEET_MODEL,
         "tts_model": TTS_MODEL,
         "tts_voice": TTS_VOICE,
         "tts_format": TTS_FORMAT,

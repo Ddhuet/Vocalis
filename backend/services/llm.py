@@ -25,7 +25,7 @@ class LLMClient:
         api_endpoint: str = "http://127.0.0.1:1234/v1",
         api_key: str = "",
         model: str = "",
-        temperature: float = 0.6,
+        temperature: float = 1,
         max_tokens: int = 2048,
         timeout: int = 20,
         approximate_context_length: int = 16000
@@ -172,7 +172,11 @@ class LLMClient:
                 "max_tokens": self.max_tokens,
                 "extra_body": {
                     "reasoning": {
-                        "enabled": False
+                        "enabled": False,
+                        "effort": "none"
+                    },
+                    "thinking": {
+                        "type": "disabled"
                     }
                 }
             }

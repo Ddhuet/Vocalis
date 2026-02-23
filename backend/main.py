@@ -17,7 +17,7 @@ import os
 from . import config
 
 # Import services
-from .services.transcription import WhisperTranscriber
+from .services.transcription import ParakeetTranscriber
 from .services.llm import LLMClient
 from .services.tts import TTSClient
 from .services.vision import vision_service
@@ -52,9 +52,8 @@ async def lifespan(app: FastAPI):
     global transcription_service, llm_service, tts_service
     
     # Initialize transcription service
-    transcription_service = WhisperTranscriber(
-        model_size=cfg["whisper_model"],
-        sample_rate=cfg["audio_sample_rate"]
+    transcription_service = ParakeetTranscriber(
+        model_name=cfg["parakeet_model"]
     )
     
     # Initialize LLM service
@@ -135,7 +134,7 @@ async def health_check():
             "vision": vision_service.is_ready()
         },
         "config": {
-            "whisper_model": config.WHISPER_MODEL,
+            "parakeet_model": config.PARAKEET_MODEL,
             "tts_voice": config.TTS_VOICE,
             "server_port": config.SERVER_PORT
         }
