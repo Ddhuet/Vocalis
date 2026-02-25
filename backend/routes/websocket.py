@@ -114,6 +114,10 @@ class WebSocketManager:
         
         # Initialize conversation storage
         self.conversation_storage = ConversationStorage()
+
+        # Current session tracking for autosave
+        self.current_session_id: Optional[str] = None
+        self.has_user_message: bool = False
         
         # Wake word / Send word state tracking
         # Wake word / Send word state tracking
@@ -416,6 +420,14 @@ class WebSocketManager:
                  logger.info("No text to process after logic applied")
                  return
 
+            # Send the final transcription to the UI so it can be displayed as a normal "User:" message
+            await websocket.send_json({
+                "type": MessageType.TRANSCRIPTION,
+                "text": final_text_to_process,
+                "metadata": {"final": True},
+                "timestamp": datetime.now().isoformat()
+            })
+
             # Notify UI that we are initiating LLM request (changes 'Listening' -> 'Processing')
             await websocket.send_json({
                 "type": MessageType.LLM_SENDING,
@@ -427,6 +439,7 @@ class WebSocketManager:
 
             # Check if we have recent vision context to incorporate
             has_vision_context = self.current_vision_context is not None
+            user_text_for_history = final_text_to_process
             
             if has_vision_context:
                 logger.info("Processing speech with vision context")
@@ -435,11 +448,10 @@ class WebSocketManager:
                 self._add_vision_context_to_conversation(self.current_vision_context)
                 
                 # Enhance user query with vision context reference
-                enhanced_transcript = f"{final_text_to_process} [Note: This question refers to the image I just analyzed.]"
+                user_text_for_history = f"{final_text_to_process} [Note: This question refers to the image I just analyzed.]"
                 
                 # Get LLM response with vision-aware context
                 await self._send_status(websocket, "processing_llm", {"has_vision_context": True})
-                llm_response = self.llm_client.get_response(enhanced_transcript, self.system_prompt)
                 
                 # Clear vision context after use to avoid affecting future non-vision conversations
                 # Only clear after successful processing
@@ -448,18 +460,31 @@ class WebSocketManager:
             else:
                 # Normal non-vision processing
                 await self._send_status(websocket, "processing_llm", {})
-                llm_response = self.llm_client.get_response(final_text_to_process, self.system_prompt)
+
+            # Persist after user message (create a new session on the first user message)
+            self.llm_client.add_to_history("user", user_text_for_history)
+            self.has_user_message = True
+            await self._auto_save_session(websocket)
+
+            # Get LLM response based on current conversation history (user message already added)
+            llm_response = self.llm_client.get_response("", add_to_history=False)
+
+            # Persist after assistant message
+            assistant_text = llm_response.get("text", "")
+            if assistant_text:
+                self.llm_client.add_to_history("assistant", assistant_text)
+                await self._auto_save_session(websocket)
             
             # Send LLM response
             await websocket.send_json({
                 "type": MessageType.LLM_RESPONSE,
-                "text": llm_response["text"],
+                "text": assistant_text,
                 "metadata": {k: v for k, v in llm_response.items() if k != "text"},
                 "timestamp": datetime.now().isoformat()
             })
             
             # Generate and send TTS audio
-            await self._send_tts_response(websocket, llm_response["text"])
+            await self._send_tts_response(websocket, assistant_text)
             
         except Exception as e:
             logger.error(f"Error processing speech segment: {e}")
@@ -710,42 +735,22 @@ class WebSocketManager:
         Handle greeting request when user first clicks microphone.
         """
         try:
-            # Check if user has conversation history
-            has_history = len(self.llm_client.conversation_history) > 0
-            
-            # Save current conversation history and temporarily clear it
-            saved_history = self.llm_client.conversation_history.copy()
-            self.llm_client.conversation_history = []
-            
-            # Get customized greeting prompt
-            instruction = self._get_greeting_prompt(is_returning_user=has_history)
-            
-            # Get response from LLM without adding to conversation history, with moderate temperature
-            # Use instruction as user message, not as system message
-            logger.info("Generating greeting")
-            llm_response = self.llm_client.get_response(instruction, self.system_prompt, add_to_history=False, temperature=0.7)
-            
-            # Restore saved conversation history
-            self.llm_client.conversation_history = saved_history
-            
-            # Add system prompt to history if not already present
-            # This also includes the user's name if set
+            # Static greeting (avoid wasting LLM tokens/time)
+            user_name = (self._get_user_name() or "").strip()
+            greeting_text = f"Hey {user_name}, what's up?" if user_name else "Hey, what's up?"
+
+            # Ensure system prompt is persisted, and keep the greeting in history for context
             self._ensure_system_prompt_in_history()
-            
-            # Add the greeting as an assistant message to conversation history
-            greeting_text = llm_response["text"]
-            if greeting_text:
-                self.llm_client.add_to_history("assistant", greeting_text)
-                logger.info(f"Added greeting to conversation history: {greeting_text[:50]}...")
-            
-            # Send LLM response
+            self.llm_client.add_to_history("assistant", greeting_text)
+
+            # Send as a normal assistant message for UI consistency
             await websocket.send_json({
                 "type": MessageType.LLM_RESPONSE,
                 "text": greeting_text,
-                "metadata": {k: v for k, v in llm_response.items() if k != "text"},
+                "metadata": {"static_greeting": True},
                 "timestamp": datetime.now().isoformat()
             })
-            
+
             # Generate and send TTS audio
             await self._send_tts_response(websocket, greeting_text)
             
@@ -798,21 +803,84 @@ class WebSocketManager:
             
             # Restore original conversation history
             self.llm_client.conversation_history = full_history
+
+            # Persist the assistant follow-up as part of the conversation
+            followup_text = llm_response.get("text", "")
+            if followup_text:
+                self.llm_client.add_to_history("assistant", followup_text)
+                await self._auto_save_session(websocket)
             
             # Send LLM response
             await websocket.send_json({
                 "type": MessageType.LLM_RESPONSE,
-                "text": llm_response["text"],
+                "text": followup_text,
                 "metadata": {k: v for k, v in llm_response.items() if k != "text"},
                 "timestamp": datetime.now().isoformat()
             })
             
             # Generate and send TTS audio
-            await self._send_tts_response(websocket, llm_response["text"])
+            await self._send_tts_response(websocket, followup_text)
             
         except Exception as e:
             logger.error(f"Error generating silent follow-up: {e}")
             await self._send_error(websocket, f"Follow-up error: {str(e)}")
+
+    async def _auto_save_session(self, websocket: WebSocket, *, send_result: bool = True) -> Optional[str]:
+        """
+        Automatically persist the current conversation history to disk.
+
+        Creates a new session on the first user message, then overwrites the same
+        session file on subsequent saves (including after loading an existing session).
+        """
+        # Don't create a session before the first user message has actually been processed.
+        if not (self.has_user_message or self.current_session_id):
+            return None
+
+        messages = self.llm_client.conversation_history.copy()
+        if not messages:
+            return None
+
+        metadata = {
+            "message_count": len(messages),
+            "user_message_count": sum(1 for m in messages if m.get("role") == "user"),
+            "assistant_message_count": sum(1 for m in messages if m.get("role") == "assistant"),
+            "user_name": self._get_user_name() or "Anonymous",
+        }
+
+        previous_session_id = self.current_session_id
+        try:
+            session_id = await self.conversation_storage.save_session(
+                messages=messages,
+                session_id=self.current_session_id,
+                metadata=metadata
+            )
+            self.current_session_id = session_id
+
+            if send_result:
+                await websocket.send_json({
+                    "type": MessageType.SAVE_SESSION_RESULT,
+                    "success": True,
+                    "session_id": session_id,
+                    "autosave": True,
+                    "timestamp": datetime.now().isoformat()
+                })
+
+            # If we just created a brand new session, allow other assistant-only messages to autosave too.
+            if previous_session_id is None and session_id:
+                self.has_user_message = True
+
+            return session_id
+        except Exception as e:
+            logger.error(f"Autosave failed: {e}")
+            if send_result:
+                await websocket.send_json({
+                    "type": MessageType.SAVE_SESSION_RESULT,
+                    "success": False,
+                    "error": str(e),
+                    "autosave": True,
+                    "timestamp": datetime.now().isoformat()
+                })
+            return None
     
     async def _handle_save_session(self, websocket: WebSocket, title: Optional[str] = None, session_id: Optional[str] = None):
         """
@@ -852,6 +920,10 @@ class WebSocketManager:
                 session_id=session_id,
                 metadata=metadata
             )
+
+            # Track session for subsequent autosaves
+            self.current_session_id = session_id
+            self.has_user_message = any(m.get("role") == "user" for m in messages)
             
             # Send confirmation
             await websocket.send_json({
@@ -885,6 +957,10 @@ class WebSocketManager:
             
             # Update LLM client's conversation history
             self.llm_client.conversation_history = session.get("messages", [])
+
+            # Track loaded session for autosave overwrites
+            self.current_session_id = session_id
+            self.has_user_message = any(m.get("role") == "user" for m in self.llm_client.conversation_history)
             
             # Send confirmation
             await websocket.send_json({
@@ -988,6 +1064,8 @@ class WebSocketManager:
             elif message_type == "clear_history":
                 # Clear conversation history (removes all messages including system prompt)
                 self.llm_client.clear_history(keep_system_prompt=False)
+                self.current_session_id = None
+                self.has_user_message = False
                 
                 # Re-add system prompt with user name to maintain context
                 self._ensure_system_prompt_in_history()

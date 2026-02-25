@@ -86,6 +86,10 @@ class ConversationStorage:
                     with open(file_path, 'r', encoding='utf-8') as f_read:
                         existing_data = json.load(f_read)
                         created_time = existing_data.get("created_at", now) # Use existing if found
+                        # Preserve existing title unless explicitly overridden.
+                        # This prevents autosave or overwrites from clobbering user-renamed sessions.
+                        if title is None:
+                            session["title"] = existing_data.get("title", session.get("title"))
                 except Exception as read_err:
                     logger.warning(f"Could not read existing session {session_id} to preserve created_at: {read_err}")
                     pass # Ignore errors reading existing, just use 'now'

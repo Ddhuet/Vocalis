@@ -8,13 +8,25 @@ import audioService, { AudioEvent, AudioState } from '../services/audio';
 // Assistant state type
 type AssistantState = 'idle' | 'greeting' | 'listening' | 'processing' | 'speaking' | 'vision_file' | 'vision_processing' | 'vision_asr';
 
+type ChatRole = 'user' | 'assistant';
+type ChatMessage = {
+  id: string;
+  role: ChatRole;
+  text: string;
+};
+
+const makeMessageId = () => {
+  const c = globalThis.crypto as Crypto & { randomUUID?: () => string };
+  return c?.randomUUID ? c.randomUUID() : `${Date.now()}-${Math.random()}`;
+};
+
 const ChatInterface: React.FC = () => {
   // State management
   const [assistantState, setAssistantState] = useState<AssistantState>('idle');
   const [previousAssistantState, setPreviousAssistantState] = useState<AssistantState>('idle');
   const [isConnected, setIsConnected] = useState(false);
-  const [transcript, setTranscript] = useState('');
-  const [_response, _setResponse] = useState('');
+  const [partialTranscript, setPartialTranscript] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>(ConnectionState.DISCONNECTED);
   const [showConnectedStatus, setShowConnectedStatus] = useState(false);
@@ -42,6 +54,8 @@ const ChatInterface: React.FC = () => {
 
   // Timeout to prevent getting stuck in listening state if Whisper doesn't process the audio
   const [listeningTimeout, setListeningTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   // Handle the vision button action
   const handleVisionAction = () => {
@@ -163,8 +177,8 @@ const ChatInterface: React.FC = () => {
     websocketService.clearHistory();
 
     // Reset local state
-    setTranscript('');
-    _setResponse('');
+    setPartialTranscript('');
+    setMessages([]);
     setIsFirstInteraction(true);
     setFollowUpTier(0);
 
@@ -370,16 +384,40 @@ const ChatInterface: React.FC = () => {
 
     // Handle transcription results
     const handleTranscription = (data: any) => {
-      setTranscript(data.text);
+      const text = (data?.text ?? '').toString();
+      const metadata = data?.metadata ?? {};
 
-      if (!data.text.trim()) {
+      // Don't surface "Listening..." wake-word activation as a user message
+      if (metadata?.wake_word_detected) {
+        setPartialTranscript('');
+        setAssistantState('listening');
+        return;
+      }
+
+      // Show partial chunks as they arrive
+      setPartialTranscript(text);
+
+      if (!text.trim()) {
         console.log("Empty transcript received, returning to idle");
+        setPartialTranscript('');
         setAssistantState('idle');
-      } else if (data.metadata?.buffering || data.metadata?.wake_word_detected) {
+      } else if (metadata?.buffering) {
         // If buffering (waiting for send word) or just activated wake word, stay in listening
-        console.log(`Transcription update (buffering=${!!data.metadata?.buffering}, wake_word=${!!data.metadata?.wake_word_detected}), maintaining listening state`);
+        console.log(`Transcription update (buffering=${!!metadata?.buffering}), maintaining listening state`);
         setAssistantState('listening');
       } else {
+        // Final transcript: commit to the scrollable conversation log
+        if (metadata?.final) {
+          const committed = text.trim();
+          if (committed) {
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (last?.role === 'user' && last.text === committed) return prev;
+              return [...prev, { id: makeMessageId(), role: 'user', text: committed }];
+            });
+          }
+          setPartialTranscript('');
+        }
         setAssistantState('processing');
       }
     };
@@ -392,8 +430,14 @@ const ChatInterface: React.FC = () => {
 
     // Handle LLM response
     const handleLLMResponse = (data: any) => {
-      // Store the response text
-      _setResponse(data.text);
+      const text = (data?.text ?? '').toString();
+      if (text.trim()) {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.role === 'assistant' && last.text === text) return prev;
+          return [...prev, { id: makeMessageId(), role: 'assistant', text }];
+        });
+      }
 
       // If we're in greeting state, this is the greeting response
       if (assistantState === 'greeting') {
@@ -711,6 +755,11 @@ const ChatInterface: React.FC = () => {
     };
   }, [assistantState, previousAssistantState, followUpTier, isConnected, callActive, preventFollowUp]);
 
+  // Keep the transcript view pinned to the bottom as messages arrive
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ block: 'end' });
+  }, [messages, partialTranscript]);
+
   // Handle the microphone/end call action
   const handleMicrophoneAction = async () => {
     // CRITICAL FOR MOBILE: Prepare audio context synchronously before any async operations
@@ -796,6 +845,38 @@ const ChatInterface: React.FC = () => {
         }
       `}</style>
       <BackgroundStars />
+
+      {/* Scrollable message log */}
+      <div className="absolute left-1/2 top-[20vh] bottom-[20vh] -translate-x-1/2 w-[800px] max-w-[92vw] z-10">
+        <div className="h-full rounded-xl border border-slate-700/40 bg-slate-950/20 backdrop-blur-md flex flex-col shadow-xl">
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {messages.map((m) => (
+              <div
+                key={m.id}
+                className={`p-3 rounded-lg border text-sm whitespace-pre-wrap ${
+                  m.role === 'user'
+                    ? 'bg-emerald-950/30 border-emerald-400/20'
+                    : 'bg-indigo-950/30 border-indigo-400/20'
+                }`}
+              >
+                <span className={`font-semibold ${m.role === 'user' ? 'text-emerald-200/90' : 'text-indigo-200/90'}`}>
+                  {m.role === 'user' ? 'User:' : 'Assistant:'}
+                </span>{' '}
+                <span className="text-slate-100/90">{m.text}</span>
+              </div>
+            ))}
+
+            {partialTranscript.trim() && (
+              <div className="p-3 rounded-lg border text-sm bg-emerald-950/15 border-emerald-400/10 whitespace-pre-wrap">
+                <span className="font-semibold text-emerald-200/70">User:</span>{' '}
+                <span className="italic text-slate-200/70">{partialTranscript}</span>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+      </div>
 
       {/* Main chat container */}
       <div className="flex-1 flex items-center justify-center">
@@ -905,18 +986,11 @@ const ChatInterface: React.FC = () => {
               </div>
             </div>
           </div>
-
-          {/* Transcription */}
-          {transcript && (
-            <div className="mt-4 max-w-md text-center text-slate-300/80 text-sm bg-slate-900/20 backdrop-blur-sm p-3 rounded-lg">
-              <p>{transcript}</p>
-            </div>
-          )}
         </div>
       </div>
 
       {/* Audio input controls */}
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3">
+      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3 z-20">
         {/* Audio visualizer would go here */}
 
         {/* Vision button - Only shown when enabled */}

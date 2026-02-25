@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Save, FolderOpen, Trash2, FileText, Plus, Edit, Check, X } from 'lucide-react';
+import React, { useRef, useState, useEffect } from 'react';
+import { FolderOpen, Trash2, X } from 'lucide-react';
 import websocketService, { MessageType, Session } from '../services/websocket';
 
 interface SessionManagerProps {
@@ -9,12 +9,10 @@ interface SessionManagerProps {
 const SessionManager: React.FC<SessionManagerProps> = ({ className = '' }) => {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(false);
-  const [newSessionTitle, setNewSessionTitle] = useState('');
-  const [isCreatingSession, setIsCreatingSession] = useState(false);
-  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
-  const [editingTitle, setEditingTitle] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const lastRefreshAt = useRef<number>(0);
+  const currentSessionIdRef = useRef<string | null>(null);
 
   // Fetch sessions when component mounts
   useEffect(() => {
@@ -32,13 +30,20 @@ const SessionManager: React.FC<SessionManagerProps> = ({ className = '' }) => {
     const handleSaveSessionResult = (data: any) => {
       console.log('Received save_session_result:', data);
       if (data.success) {
-        fetchSessions(); // Refresh the list
-        setIsCreatingSession(false);
-        setNewSessionTitle('');
+        if (data.session_id) {
+          setCurrentSessionId(data.session_id);
+          currentSessionIdRef.current = data.session_id;
+        }
+
+        // Autosave can fire frequently; throttle refreshes to avoid UI spam.
+        const now = Date.now();
+        if (now - lastRefreshAt.current > 2000) {
+          lastRefreshAt.current = now;
+          fetchSessions();
+        }
       } else {
         setError('Failed to save session');
       }
-      setLoading(false);
     };
     
     const handleLoadSessionResult = (data: any) => {
@@ -46,6 +51,7 @@ const SessionManager: React.FC<SessionManagerProps> = ({ className = '' }) => {
       if (data.success) {
         // Set currently loaded session
         setCurrentSessionId(data.session_id);
+        currentSessionIdRef.current = data.session_id;
       } else {
         setError(`Failed to load session: ${data.session_id}`);
       }
@@ -56,8 +62,9 @@ const SessionManager: React.FC<SessionManagerProps> = ({ className = '' }) => {
       console.log('Received delete_session_result:', data);
       if (data.success) {
         // If the deleted session was the current one, clear currentSessionId
-        if (data.session_id === currentSessionId) {
+        if (data.session_id === currentSessionIdRef.current) {
           setCurrentSessionId(null);
+          currentSessionIdRef.current = null;
         }
         fetchSessions(); // Refresh the list
       } else {
@@ -92,18 +99,12 @@ const SessionManager: React.FC<SessionManagerProps> = ({ className = '' }) => {
       websocketService.removeEventListener(MessageType.DELETE_SESSION_RESULT as any, handleDeleteSessionResult);
       websocketService.removeEventListener(MessageType.ERROR as any, handleError);
     };
-  }, [currentSessionId]);
+  }, []);
 
   // Fetch sessions from server
   const fetchSessions = () => {
     setLoading(true);
     websocketService.listSessions();
-  };
-
-  // Save current session
-  const saveSession = (title: string = '', sessionId?: string) => {
-    setLoading(true);
-    websocketService.saveSession(title, sessionId);
   };
 
   // Load a session
@@ -132,71 +133,11 @@ const SessionManager: React.FC<SessionManagerProps> = ({ className = '' }) => {
     });
   };
 
-  // Start editing a session title
-  const startEditingSession = (session: Session) => {
-    setEditingSessionId(session.id);
-    setEditingTitle(session.title);
-  };
-
-  // Save edited session title
-  const saveEditedSession = () => {
-    if (editingSessionId) {
-      saveSession(editingTitle, editingSessionId);
-      setEditingSessionId(null);
-    }
-  };
-
-  // Cancel editing session title
-  const cancelEditingSession = () => {
-    setEditingSessionId(null);
-  };
-
   return (
     <div className={`flex flex-col h-full ${className}`}>
       <div className="flex items-center justify-between mb-4 px-4 pt-4">
         <h2 className="text-xl font-semibold text-gray-200">Sessions</h2>
-        <button
-          onClick={() => setIsCreatingSession(true)}
-          className="p-2 rounded-full hover:bg-gray-700 transition-colors"
-          aria-label="New session"
-          title="Save current conversation"
-        >
-          <Plus className="w-5 h-5 text-gray-200" />
-        </button>
       </div>
-
-      {/* Create new session form */}
-      {isCreatingSession && (
-        <div className="mx-4 mb-4 p-3 bg-gray-800 rounded-lg">
-          <div className="flex items-center mb-2">
-            <FileText className="w-4 h-4 text-gray-400 mr-2" />
-            <h3 className="text-sm font-medium text-gray-200">Save Conversation</h3>
-          </div>
-          <input
-            type="text"
-            value={newSessionTitle}
-            onChange={(e) => setNewSessionTitle(e.target.value)}
-            placeholder="Title (optional)"
-            className="w-full p-2 mb-2 bg-gray-700 border border-gray-600 rounded text-sm text-gray-200"
-            autoFocus
-          />
-          <div className="flex justify-end gap-2">
-            <button
-              onClick={() => setIsCreatingSession(false)}
-              className="px-2 py-1 text-sm rounded hover:bg-gray-600"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => saveSession(newSessionTitle)}
-              className="px-2 py-1 text-sm bg-blue-600 rounded hover:bg-blue-700"
-              disabled={loading}
-            >
-              Save
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Error message */}
       {error && (
@@ -232,104 +173,48 @@ const SessionManager: React.FC<SessionManagerProps> = ({ className = '' }) => {
                     : 'bg-gray-800/50 border-gray-700/50'
                 } hover:bg-gray-800 transition-colors`}
               >
-                {editingSessionId === session.id ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={editingTitle}
-                      onChange={(e) => setEditingTitle(e.target.value)}
-                      className="flex-1 p-1 bg-gray-700 border border-gray-600 rounded text-sm"
-                      autoFocus
-                    />
-                    <button 
-                      onClick={saveEditedSession}
-                      className="p-1 rounded hover:bg-gray-700"
-                    >
-                      <Check className="w-4 h-4 text-green-500" />
-                    </button>
-                    <button 
-                      onClick={cancelEditingSession}
-                      className="p-1 rounded hover:bg-gray-700"
-                    >
-                      <X className="w-4 h-4 text-red-500" />
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-medium text-gray-200 mb-1 truncate pr-2" title={session.title}>
-                        {session.title || `Conversation ${formatDate(session.created_at)}`}
-                        {currentSessionId === session.id && (
-                          <span className="ml-2 px-1.5 py-0.5 rounded-full bg-blue-900/50 text-blue-300 text-xs">
-                            Active
-                          </span>
-                        )}
-                      </h3>
-                      <div className="flex space-x-1">
-                        <button
-                          onClick={() => startEditingSession(session)}
-                          className="p-1 rounded hover:bg-gray-700"
-                          title="Edit title"
-                        >
-                          <Edit className="w-4 h-4 text-gray-400 hover:text-gray-200" />
-                        </button>
-                        <button
-                          onClick={() => deleteSession(session.id)}
-                          className="p-1 rounded hover:bg-gray-700"
-                          title="Delete session"
-                        >
-                          <Trash2 className="w-4 h-4 text-gray-400 hover:text-red-400" />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <div className="text-xs text-gray-400">
-                        {formatDate(session.updated_at)}
-                      </div>
-                      <div className="flex space-x-1">
-                        <button
-                          onClick={() => loadSession(session.id)}
-                          className="text-xs px-2 py-1 rounded bg-blue-800/50 text-blue-200 hover:bg-blue-700/60"
-                          title="Load session"
-                        >
-                          Load
-                        </button>
-                        <button
-                          onClick={() => saveSession(session.title, session.id)}
-                          className="text-xs px-2 py-1 rounded bg-green-800/50 text-green-200 hover:bg-green-700/60"
-                          title="Save current conversation to this session"
-                        >
-                          Save
-                        </button>
-                      </div>
-                    </div>
-                    {session.metadata && (
-                      <div className="mt-2 flex gap-2 text-xs">
-                        <span className="px-1.5 py-0.5 rounded-full bg-gray-700/50 text-gray-300">
-                          {session.metadata.message_count || 0} messages
-                        </span>
-                      </div>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-medium text-gray-200 mb-1 truncate pr-2" title={session.title}>
+                    {session.title || `Conversation ${formatDate(session.created_at)}`}
+                    {currentSessionId === session.id && (
+                      <span className="ml-2 px-1.5 py-0.5 rounded-full bg-blue-900/50 text-blue-300 text-xs">
+                        Active
+                      </span>
                     )}
-                  </>
+                  </h3>
+                  <button
+                    onClick={() => deleteSession(session.id)}
+                    className="p-1 rounded hover:bg-gray-700"
+                    title="Delete session"
+                  >
+                    <Trash2 className="w-4 h-4 text-gray-400 hover:text-red-400" />
+                  </button>
+                </div>
+                <div className="flex justify-between items-center">
+                  <div className="text-xs text-gray-400">
+                    {formatDate(session.updated_at)}
+                  </div>
+                  <button
+                    onClick={() => loadSession(session.id)}
+                    className="text-xs px-2 py-1 rounded bg-blue-800/50 text-blue-200 hover:bg-blue-700/60"
+                    title="Load session"
+                    disabled={loading}
+                  >
+                    Load
+                  </button>
+                </div>
+                {session.metadata && (
+                  <div className="mt-2 flex gap-2 text-xs">
+                    <span className="px-1.5 py-0.5 rounded-full bg-gray-700/50 text-gray-300">
+                      {session.metadata.message_count || 0} messages
+                    </span>
+                  </div>
                 )}
               </li>
             ))}
           </ul>
         )}
       </div>
-
-      {!isCreatingSession && (
-        <div className="p-4 border-t border-gray-800">
-          <button
-            onClick={() => setIsCreatingSession(true)}
-            className="w-full py-2 rounded-md bg-blue-600 hover:bg-blue-700 flex items-center justify-center gap-2"
-            disabled={loading}
-          >
-            <Save className="w-4 h-4" />
-            Save As New Conversation
-          </button>
-        </div>
-      )}
     </div>
   );
 };
