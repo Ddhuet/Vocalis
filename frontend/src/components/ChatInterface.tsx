@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Mic, Loader2, Volume2, VolumeX, PhoneOff, Phone, Eye } from 'lucide-react';
+import { Loader2, Volume2, VolumeX, PhoneOff, Phone, Eye } from 'lucide-react';
 import BackgroundStars from './BackgroundStars';
-import AssistantOrb from './AssistantOrb';
 import websocketService, { MessageType, ConnectionState } from '../services/websocket';
 import audioService, { AudioEvent, AudioState } from '../services/audio';
 
@@ -29,7 +28,6 @@ const ChatInterface: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>(ConnectionState.DISCONNECTED);
-  const [showConnectedStatus, setShowConnectedStatus] = useState(false);
   const [callActive, setCallActive] = useState(true);
   const [visionEnabled, setVisionEnabled] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -204,25 +202,11 @@ const ChatInterface: React.FC = () => {
     console.log('Call ended, conversation reset, microphone deactivated');
   };
 
-  // Monitor connection state changes and handle transitions
+  // Monitor connection state changes and clear stale errors on reconnect
   useEffect(() => {
-    // If connection state changes to connected
-    if (connectionState === ConnectionState.CONNECTED) {
-      // Clear any errors
-      if (error) {
-        console.log('Connection established - clearing any WebSocket errors');
-        setError(null);
-      }
-
-      // Show the connected status briefly
-      setShowConnectedStatus(true);
-
-      // Then hide it after a delay
-      const timer = setTimeout(() => {
-        setShowConnectedStatus(false);
-      }, 2000); // Show for 2 seconds
-
-      return () => clearTimeout(timer);
+    if (connectionState === ConnectionState.CONNECTED && error) {
+      console.log('Connection established - clearing any WebSocket errors');
+      setError(null);
     }
   }, [connectionState, error]);
 
@@ -829,8 +813,10 @@ const ChatInterface: React.FC = () => {
     }
   };
 
+  const isListeningPaneState = assistantState === 'listening' || assistantState === 'vision_asr';
+
   return (
-    <div className="relative min-h-screen bg-gradient-radial from-[#1a1025] via-[#0d0a1f] to-[#06040f] text-slate-200 flex flex-col">
+    <div className="relative h-[100dvh] min-h-[100dvh] overflow-hidden bg-gradient-radial from-[#1a1025] via-[#0d0a1f] to-[#06040f] text-slate-200 flex flex-col">
       {/* Custom animation styles */}
       <style>{`
         @keyframes colorCycle {
@@ -847,8 +833,12 @@ const ChatInterface: React.FC = () => {
       <BackgroundStars />
 
       {/* Scrollable message log */}
-      <div className="absolute left-1/2 top-[20vh] bottom-[20vh] -translate-x-1/2 w-[800px] max-w-[92vw] z-10">
-        <div className="h-full rounded-xl border border-slate-700/40 bg-slate-950/20 backdrop-blur-md flex flex-col shadow-xl">
+      <div className="fixed left-1/2 top-[20vh] bottom-[20vh] -translate-x-1/2 w-[800px] max-w-[92vw] z-10">
+        <div
+          className={`h-full rounded-xl border bg-slate-950/20 backdrop-blur-md flex flex-col shadow-xl transition-colors duration-200 ${
+            isListeningPaneState ? 'border-emerald-400/80' : 'border-white/40'
+          }`}
+        >
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {messages.map((m) => (
               <div
@@ -878,119 +868,23 @@ const ChatInterface: React.FC = () => {
         </div>
       </div>
 
-      {/* Main chat container */}
-      <div className="flex-1 flex items-center justify-center">
-        {/* Assistant orb */}
-        <div className="flex flex-col items-center justify-center px-8">
-          <div className={`
-            transition-transform duration-500 ease-out
-          `}>
-            <AssistantOrb state={assistantState} />
-          </div>
-
-          {/* Status messages */}
-          <div className="relative h-16 mt-4">
-            {/* Greeting message */}
-            <div className={`
-              absolute inset-x-0 flex items-center justify-center
-              transition-all duration-500
-              ${assistantState === 'greeting' ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}
-            `}>
-              <div className="flex items-center gap-2 bg-blue-900/30 backdrop-blur-sm px-4 py-2 rounded-full border border-blue-400/20">
-                <Phone className="w-4 h-4 text-blue-400/70 animate-pulse" />
-                <span className="text-blue-400/70 text-sm">Greeting...</span>
-              </div>
-            </div>
-
-            {/* Processing message */}
-            <div className={`
-              absolute inset-x-0 flex items-center justify-center
-              transition-all duration-500
-              ${assistantState === 'processing' ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}
-            `}>
-              <div className="flex items-center gap-2 bg-slate-900/50 backdrop-blur-sm px-4 py-2 rounded-full">
-                <Loader2 className="w-4 h-4 text-white/70 animate-spin" />
-                <span className="text-white/70 text-sm">Processing...</span>
-              </div>
-            </div>
-
-            {/* Speaking message */}
-            <div className={`
-              absolute inset-x-0 flex items-center justify-center
-              transition-all duration-500
-              ${assistantState === 'speaking' ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}
-            `}>
-              <div className="flex items-center gap-2 bg-amber-900/30 backdrop-blur-sm px-4 py-2 rounded-full border border-amber-400/20">
-                <Volume2 className="w-4 h-4 text-amber-400/70 animate-pulse" />
-                <span className="text-amber-400/70 text-sm">Speaking...</span>
-              </div>
-            </div>
-
-            {/* Listening message */}
-            <div className={`
-              absolute inset-x-0 flex items-center justify-center
-              transition-all duration-500
-              ${assistantState === 'listening' ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}
-            `}>
-              <div className="flex items-center gap-2 bg-emerald-900/30 backdrop-blur-sm px-4 py-2 rounded-full border border-emerald-400/20">
-                <Mic className="w-4 h-4 text-emerald-400/70 animate-pulse" />
-                <span className="text-emerald-400/70 text-sm">Listening...</span>
-              </div>
-            </div>
-
-            {/* Vision ASR message */}
-            <div className={`
-              absolute inset-x-0 flex items-center justify-center
-              transition-all duration-500
-              ${assistantState === 'vision_asr' ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2'}
-            `}>
-              <div className="flex items-center gap-2 bg-emerald-900/30 backdrop-blur-sm px-4 py-2 rounded-full border border-emerald-400/20">
-                <Mic className="w-4 h-4 text-emerald-400/70 animate-pulse" />
-                <span className="text-emerald-400/70 text-sm">Ask...</span>
-              </div>
-            </div>
-
-            {/* Disconnected status */}
-            <div className={`
-              absolute inset-x-0 flex items-center justify-center bottom-0
-              transition-all duration-500
-              ${!isConnected ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}
-            `}>
-              <div className="flex items-center gap-2 bg-red-900/30 backdrop-blur-sm px-4 py-2 rounded-full border border-red-400/20">
-                <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse"></span>
-                <span className="text-red-400/70 text-xs">Disconnected</span>
-              </div>
-            </div>
-
-            {/* Connected status - shows briefly then fades away */}
-            <div className={`
-              absolute inset-x-0 flex items-center justify-center bottom-0
-              transition-all duration-1000
-              ${showConnectedStatus && isConnected ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}
-            `}>
-              <div className="flex items-center gap-2 bg-emerald-900/30 backdrop-blur-sm px-4 py-2 rounded-full border border-emerald-400/20">
-                <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                <span className="text-emerald-400/70 text-xs">Connected</span>
-              </div>
-            </div>
-
-            {/* End call toast - displays when conversation is reset */}
-            <div className={`
-              absolute inset-x-0 flex items-center justify-center top-0
-              transition-all duration-500
-              ${showEndCallToast ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-6'}
-            `}>
-              <div className="flex items-center gap-2 bg-red-900/30 backdrop-blur-sm px-4 py-2 rounded-full border border-red-400/20">
-                <PhoneOff className="w-4 h-4 text-red-400/70" />
-                <span className="text-red-300/90 text-sm">Goodbye!</span>
-              </div>
-            </div>
-          </div>
+      {/* End call toast */}
+      <div
+        className={`
+          fixed left-1/2 -translate-x-1/2 z-30
+          top-[max(0.75rem,env(safe-area-inset-top))]
+          transition-all duration-500
+          ${showEndCallToast ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-6'}
+        `}
+      >
+        <div className="flex items-center gap-2 bg-red-900/30 backdrop-blur-sm px-4 py-2 rounded-full border border-red-400/20">
+          <PhoneOff className="w-4 h-4 text-red-400/70" />
+          <span className="text-red-300/90 text-sm">Goodbye!</span>
         </div>
       </div>
 
       {/* Audio input controls */}
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3 z-20">
+      <div className="fixed left-1/2 -translate-x-1/2 bottom-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-3 z-40">
         {/* Audio visualizer would go here */}
 
         {/* Vision button - Only shown when enabled */}
@@ -1125,9 +1019,9 @@ const ChatInterface: React.FC = () => {
         </button>
       </div>
 
-      {/* Vision file upload positioned below orb */}
+      {/* Vision file upload */}
       {assistantState === 'vision_file' && (
-        <div className="absolute bottom-32 left-1/2 -translate-x-1/2 w-full max-w-sm mx-auto z-30">
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+5.5rem)] w-full max-w-sm px-4 mx-auto z-30">
           <div className="bg-slate-900/95 shadow-xl border border-sky-300/20 p-6 rounded-xl backdrop-blur-md">
             <h3 className="text-lg font-medium text-sky-100 mb-4 flex items-center gap-2">
               <Eye className="w-5 h-5 text-sky-300" />
@@ -1162,9 +1056,9 @@ const ChatInterface: React.FC = () => {
         </div>
       )}
 
-      {/* Vision processing message - positioned exactly like file upload */}
+      {/* Vision processing message */}
       {assistantState === 'vision_processing' && (
-        <div className="absolute bottom-[175px] left-1/2 -translate-x-1/2 w-full max-w-sm mx-auto z-30">
+        <div className="fixed left-1/2 -translate-x-1/2 bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+5.5rem)] w-full max-w-sm px-4 mx-auto z-30">
           <div className="bg-slate-900/95 shadow-xl border border-sky-300/20 p-6 rounded-xl backdrop-blur-md text-center">
             <div className="flex justify-center mb-4">
               <Loader2 className="w-8 h-8 text-sky-300 animate-spin" />

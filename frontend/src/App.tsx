@@ -32,11 +32,11 @@ function App() {
   }, []);
 
   return (
-    <div className="flex relative">
+    <div className="relative flex h-[100dvh] min-h-[100dvh] overflow-hidden">
       {/* Toggle Button */}
       <button
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        className="fixed top-4 left-4 z-50 p-2 rounded-lg bg-slate-800/30 hover:bg-slate-700/30 
+        className="fixed left-4 top-[max(1rem,env(safe-area-inset-top))] z-50 p-2 rounded-lg bg-slate-800/30 hover:bg-slate-700/30 
                    text-slate-400 hover:text-slate-300 transition-all duration-300"
       >
         <Menu className="w-5 h-5" />
@@ -58,8 +58,7 @@ function App() {
       
       {/* Main Content */}
       <div className={`
-        flex-1 transition-all duration-300 ease-in-out
-        ${isSidebarOpen ? 'ml-64' : 'ml-0'}
+        flex-1 h-full overflow-hidden transition-all duration-300 ease-in-out
       `}>
         <ChatInterface />
       </div>

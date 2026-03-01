@@ -63,7 +63,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   };
   
   return (
-    <div className="w-64 h-screen bg-slate-900/20 backdrop-blur-sm flex flex-col pt-16 border-r border-slate-800/50">
+    <div className="w-64 h-screen overflow-y-auto overscroll-contain bg-slate-900/20 backdrop-blur-sm flex flex-col pt-16 border-r border-slate-800/50">
       <div className="flex-1 flex flex-col text-slate-300">
         <div className="p-4 pb-2">
           <h2 className="text-lg font-semibold mb-4 text-emerald-400/90">Vocalis</h2>
